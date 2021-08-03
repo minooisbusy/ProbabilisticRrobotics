@@ -73,7 +73,7 @@ def find_map_around_robot(xTrue, m, radius):
 	
 	return zs
 
-def ekf_estimation(xEst, PEst, zs, u, m):
+def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	# Prediction
 	xPred = motion_model(xEst,u)
 	jG = jacob_g(xEst, u)
@@ -121,7 +121,7 @@ def ekf_estimation(xEst, PEst, zs, u, m):
 		KH += K@Hs[mapper[i],:,:]
 	xEst = xPred + residual.reshape((3,1))
 	PEst = (np.eye(3)-KH)@PPred
-	return xEst, PEst
+	return xEst, PEst, mapper
 
 
 def jacob_g(x, u):
@@ -153,7 +153,7 @@ def main():
 	# Initialize variables
 	# states
 	xEst = np.zeros((3,1)) # estimated state mean
-	PEst = np.eye(3) # Estimated state covariance
+	PEst = 0.000003*np.eye(3) # Estimated state covariance
 
 	xTrue = np.zeros((3,1)) # true state
 	xDR = np.zeros((3,1)) # Dead Reckoning: initial state evolution with noisy input
@@ -172,7 +172,7 @@ def main():
 		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m)
 
 		zdfs = convert_z2feature(xTrue, zds)
-		xEst, PEst = ekf_estimation(xEst, PEst, zdfs, ud, m)
+		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
 
 
 		### Just plotting code
@@ -187,25 +187,36 @@ def main():
 			plt.plot(hxTrue[0, :].flatten(),
 					 hxTrue[1, :].flatten(), "-b")
 			# Dead Reckoning position trajectory
-			plt.plot(hxDR[0, :].flatten(),
-					 hxDR[1, :].flatten(), "-k")
+			#plt.plot(hxDR[0, :].flatten(),
+			#		 hxDR[1, :].flatten(), "-k")
 			plt.plot(hxEst[0, :].flatten(),
-					 hxEst[1, :].flatten(), "-r")
+					 hxEst[1, :].flatten(), "-k")
 			# Map
 			plt.plot(m[:, 0],
 					 m[:, 1],".g")
 			# Real landmark position
 			if len(zs) != 0:
 				plt.plot(zs[:, 0].flatten(),
-						zs[:, 1].flatten(), "oy")
+						zs[:, 1].flatten(), "+y")
 				plt.plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xk")
+			for i, z in enumerate(zds):
+				print(i, mapper[i])
+				plt.plot([z[0],m[mapper[i]][0]],
+					  [z[1], m[mapper[i]][1]], "-r")
 			plt.axis("equal")
 			plt.xlim(-20,20)
 			plt.ylim(-5,25)
 			plt.grid(True)
 			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
 			plt.pause(0.001)
+			key = None
+			while key != 'q':
+				key = plt.waitforbuttonpress(0.001)
+				if key == 'escape':
+					sys.exit()
+
+
 			
 	return 0
 
