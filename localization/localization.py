@@ -9,8 +9,8 @@ from scipy.linalg import sqrtm
 # Global variables
 dt = 0.1 # time intervals
 N = 200 # number of states
-Q = np.diag([1,1,1]) **2
-R = np.diag([1.0, 1.0, 1.0])**2
+Q = np.diag([0.1,0.1,0.1]) **2
+R = np.diag([0.1, 0.1, 0.1])**2
 
 # Noise parameters
 INPUT_NOISE = np.diag([10, np.deg2rad(30.0)]) ** 2
@@ -31,7 +31,6 @@ def observation(xTrue, xd, u, m): # This method is not a observation model h(x)
 
 def motion_model(xTrue, u):
 	r = u[0]/u[1]
-	print(xTrue)
 	g = np.array(
 		[
 			xTrue[0]-r*math.sin(xTrue[2]) + r * math.sin(xTrue[2] + u[1]*dt),
@@ -94,9 +93,12 @@ def ekf_estimation(xEst, PEst, zs, u, m):
 		hat_z[1, k] = math.atan2(deltaY, deltaX)-xPred[2]
 		hat_z[2, k] = 0
 		sqrtq = math.sqrt(q)
-		Hs[k,:3,:3] = np.array([[sqrtq*deltaX, - sqrtq*deltaY, 0], [deltaY, deltaX, -1],[0, 0, 0]
-		])
-		Psi[k,:,:] = Hs[k,:,:]@PPred@Hs[k,:,:].T + Q
+		Hs[k,:3,:3] = np.matrix([
+			[sqrtq*deltaX, - sqrtq*deltaY, 0],
+			[deltaY, deltaX, -1],
+			[0, 0, 0]
+		],dtype=float)/q
+		Psi[k,:,:] = Hs[k,:,:]@PPred@Hs[k,:,:].T +Q
 	
 	Ks = np.zeros((len(zs),3,3))
 	mapper = []
@@ -123,17 +125,17 @@ def ekf_estimation(xEst, PEst, zs, u, m):
 
 
 def jacob_g(x, u):
-	G = np.array(
+	G = np.matrix(
 		[
-			[1, 0, u[0]/u[1]*math.cos(x[2]) - u[0]/u[1]*math.cos(x[2]+u[1]*dt)],
-			[0, 1, u[0]/u[1]*math.sin(x[2]) - u[0]/u[1]*math.sin(x[2]+u[1]*dt)],
-			[0,0,1]
-		]
+			[1.0, 0.0, u[0]/u[1]*math.cos(x[2]) - u[0]/u[1]*math.cos(x[2]+u[1]*dt)],
+			[0.0, 1.0, u[0]/u[1]*math.sin(x[2]) - u[0]/u[1]*math.sin(x[2]+u[1]*dt)],
+			[0.0,0.0,1.0]
+		], dtype=float
 	)
 	return G
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 3))
+	output = np.zeros((len(zs), 3), dtype=float)
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
@@ -180,7 +182,7 @@ def main():
 
 		if show_animation:
 			plt.cla()
-			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if event.key == 'escape' else None])
+			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
 			# True pose trajectory
 			plt.plot(hxTrue[0, :].flatten(),
 					 hxTrue[1, :].flatten(), "-b")
@@ -200,8 +202,9 @@ def main():
 						zds[:, 1].flatten(), "xk")
 			plt.axis("equal")
 			plt.xlim(-20,20)
-			plt.ylim(-20,20)
+			plt.ylim(-5,25)
 			plt.grid(True)
+			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
 			plt.pause(0.001)
 			
 	return 0
