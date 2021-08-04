@@ -49,7 +49,7 @@ def observation(xTrue, xd, u, m): # This method is not a observation model h(x)
 	xTrue = motion_model(xTrue, u)
 	zs = find_map_around_robot(xTrue, m, 3) # True position based observation
 	ud = u + GPS_NOISE@np.random.randn(2,1) # Noisy input!
-	zds = zs + 0.1*np.random.randn(*zs.shape)
+	zds = zs #+ 0.1*np.random.randn(*zs.shape)
 	xDR = motion_model(xd, ud)
 	return xTrue, zs, zds, xDR, ud
 
@@ -92,16 +92,20 @@ def find_map_around_robot(xTrue, m, radius):
 	for landmark in m:
 		if (xTrue[0]-landmark[0])**2+(xTrue[1]-landmark[1])**2<radius**2:
 			if zs is None:
-				zs = landmark + 0.001*np.random.randn(2)
+				zs = landmark #+ 0.001*np.random.randn(2)
 			else:
-				zs = np.vstack([zs, landmark + 0.001*np.random.randn(2)])
+				#zs = np.vstack([zs, landmark + 0.001*np.random.randn(2)])
+				zs = np.vstack([zs, landmark ])
 	
 	return zs
 
 def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	# Prediction Line 2 ~ 4
-	xPred = motion_model(xEst,u)
+	# Line 2
+	xPred = motion_model(xEst,u) # Prediction with noisy control input $u$
+	# Line 3
 	jG = jacob_g(xEst, u)
+	# Line 4
 	PPred = jG@PEst@jG.T + R
 
 	# Update, Line 6~12
@@ -128,11 +132,11 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	
 	# Line 13 ~ 15
 	Ks = np.zeros((len(zs),3,3))
-	mapper = [] # Correspondence variable $c_t^k$
+	mapper = [] # Initialize Correspondence variable $c_t^k$
 	# Line 14
 	for i,z in enumerate(zs):
 		distance = np.zeros(len(m))
-		for k in range(len(m)): # 1:N search which can evoke multi-mapping
+		for k in range(len(m)): # 1:N search which can cause multi-mapping
 			dx = z-hat_z[:,k]
 			distance[k] = dx@invPsi[k,:3,:3]@dx.T
 		j = np.argmin(distance)
@@ -144,9 +148,9 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	residual = np.zeros((3))
 	# Line 17: Summation of $K_t^i (z_t^i - \hat{z}_t^{j(i)})$
 	for i, z in enumerate(zs):
-		temp = Ks[i,:3,:3]@(z - hat_z[:,mapper[i]])
-		residual += temp
+		residual += Ks[i,:3,:3]@(z - hat_z[:,mapper[i]])
 
+	# Line 18 summation of $K_t^i H_t^{j(i)}$
 	KH = np.zeros((3,3))
 	for i, K in enumerate(Ks):
 		KH += K@Hs[mapper[i],:3,:3]
@@ -159,7 +163,7 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 
 
 def jacob_g(x, u):
-	r = u[0]/u[1]
+	r = u[0]/u[1] # r=v/{\omega}
 	G1=np.array([1.0, 0.0, r*math.cos(x[2]) - r*math.cos(x[2]+u[1]*dt)],dtype=float)
 	G2=np.array([0.0, 1.0, r*math.sin(x[2]) - r*math.sin(x[2]+u[1]*dt)],dtype=float)
 	G3=np.array([0.0,0.0,1.0],dtype=float)
