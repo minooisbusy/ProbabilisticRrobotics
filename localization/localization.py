@@ -37,7 +37,7 @@ R = np.diag([0.1, 0.1, 0])**2
 Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
 
 # Noise parameters
-INPUT_NOISE = np.diag([1, np.deg2rad(10.0)]) ** 2
+INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
 GPS_NOISE = np.diag([0.1, 0.1]) ** 2
 def calc_input():
 	v = 1.0
@@ -50,7 +50,7 @@ def observation(xTrue, xd, u, m): # This method is not a observation model h(x)
 	zs = find_map_around_robot(xTrue, m, 3) # True position based observation
 	ud = u + INPUT_NOISE@np.random.randn(2,1) # Noisy input!
 	z_noise =0.01*np.insert(np.random.randn(*(zs.shape))[:,:2],2,0,axis=1)
-	zds = zs #+ z_noise
+	zds = zs + z_noise
 	xDR = motion_model(xd, ud)
 	return xTrue, zs, zds, xDR, ud
 
@@ -58,21 +58,34 @@ def motion_model(xTrue, u):
 	r = u[0]/u[1]
 	g = np.array(
 		[
-			xTrue[0]-r*math.sin(xTrue[2]) + r * math.sin(xTrue[2] + u[1]*dt),
-			xTrue[1]+r*math.cos(xTrue[2]) - r * math.cos(xTrue[2] + u[1]*dt),
+			xTrue[0]+u[0]*np.math.cos(xTrue[2])*dt,
+			xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
 			xTrue[2]+u[1]*dt
 		]
 	)
 	return g
 
+def jacob_g(x, u):
+	r = u[0]/u[1] # r=v/{\omega}
+	G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
+	G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
+	G3=np.array([0.0,0.0,1.0],dtype=object)
+	G = np.vstack([G1,G2,G3])
+	return G
 
-def observation_model(xPred, map):
-	for m in map:
-		delta = np.array([
-			[m[0]-xPred[0]],m[1]-xPred[1],
-			[math.atan2(delta[1],delta[0])-xPred[2]],
-			])
-		q = delta.T@delta
+
+def jacob_h(x, m):
+	deltaX = m[0] - x[0]
+	deltaY = m[1] - x[1]
+	q = deltaX**2 + deltaY**2
+	sqrtq = math.sqrt(q)
+	#z = np.array([sqrtq, math.atan2(deltaY,deltaX)-x[2], m[2]])
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0],dtype=object)
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0],dtype=object)
+	H3 = np.array([0, 0, 0],dtype=object)
+	H = np.vstack([H1,H2,H3])
+	
+	return H
 	
 def make_map(r, N): 
 	noisy_r = r + 0.01*np.random.randn()
@@ -108,31 +121,11 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
 	mapper = [] # Initialize Correspondence variable $c_t^k$
-	for z in zs[:1,:]:
+	for z in zs:
 		xPred, PPred, mapper = measurement_update(xPred, PPred, z, m, mapper)
 
 	return xPred, PPred, mapper, xPred
 
-def jacob_g(x, u):
-	r = u[0]/u[1] # r=v/{\omega}
-	G1=np.array([1.0, 0.0, r*math.cos(x[2]) - r*math.cos(x[2]+u[1]*dt)],dtype=object)
-	G2=np.array([0.0, 1.0, r*math.sin(x[2]) - r*math.sin(x[2]+u[1]*dt)],dtype=object)
-	G3=np.array([0.0,0.0,1.0],dtype=object)
-	G = np.vstack([G1,G2,G3])
-	return G
-
-def jacob_h(x, m):
-	deltaX = m[0] - x[0]
-	deltaY = m[1] - x[1]
-	q = deltaX**2 + deltaY**2
-	sqrtq = math.sqrt(q)
-	#z = np.array([sqrtq, math.atan2(deltaY,deltaX)-x[2], m[2]])
-	H1 = np.array([deltaX*sqrtq, -deltaY*sqrtq, 0],dtype=object)
-	H2 = np.array([deltaY, deltaX, -1.0],dtype=object)
-	H3 = np.array([0, 0, 0],dtype=object)
-	H = np.vstack([H1,H2,H3])/q
-	
-	return H
 
 
 
@@ -180,9 +173,10 @@ def measurement_update(x, P, z, m, mapper):
 	# Line 14
 	distance = np.zeros(len(m))
 	for k in range(len(m)): # 1:N search which can cause multi-mapping
-		dx = z[2]-hat_z[2,k]
-		#distance[k] = dx@invPsi[k,:3,:3]@dx.T
-		distance[k]=dx**2
+		dx = z-hat_z[:,k]
+		distance[k] = dx@invPsi[k,:3,:3]@dx.T
+		#dx = z[2]-hat_z[2,k]
+		#distance[k]=dx**2
 	j = np.argmin(distance)
 	mapper.append(j)
 	# Line 15
@@ -248,8 +242,8 @@ def main():
 					 hxDR[1, :].flatten(), "--k")
 			plt.plot(hxEst[0, :].flatten(),
 					 hxEst[1, :].flatten(), "-c")
-			plt.plot(hxPred[0, :].flatten(),
-					 hxPred[1, :].flatten(), "--r")
+#			plt.plot(hxPred[0, :].flatten(),
+#					 hxPred[1, :].flatten(), "--r")
 
 			# Map
 			plt.plot(m[:, 0],
