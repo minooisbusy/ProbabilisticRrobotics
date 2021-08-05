@@ -37,19 +37,20 @@ R = np.diag([0.1, 0.1, 0])**2
 Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
 
 # Noise parameters
-INPUT_NOISE = np.diag([10, np.deg2rad(30.0)]) ** 2
+INPUT_NOISE = np.diag([1, np.deg2rad(10.0)]) ** 2
 GPS_NOISE = np.diag([0.1, 0.1]) ** 2
 def calc_input():
 	v = 1.0
 	yaw_rate = 0.1
-	u = np.array([[v, yaw_rate]]).T
+	u = np.array([[v, yaw_rate]]).T # 2x1
 	return u
 
 def observation(xTrue, xd, u, m): # This method is not a observation model h(x)
 	xTrue = motion_model(xTrue, u)
 	zs = find_map_around_robot(xTrue, m, 3) # True position based observation
-	ud = u + GPS_NOISE@np.random.randn(2,1) # Noisy input!
-	zds = zs #+ 0.1*np.random.randn(*zs.shape)
+	ud = u + INPUT_NOISE@np.random.randn(2,1) # Noisy input!
+	z_noise =0.01*np.insert(np.random.randn(*(zs.shape))[:,:2],2,0,axis=1)
+	zds = zs #+ z_noise
 	xDR = motion_model(xd, ud)
 	return xTrue, zs, zds, xDR, ud
 
@@ -79,20 +80,22 @@ def make_map(r, N):
 	theta = np.pi*2*np.random.randn(1)
 	x = noisy_r*math.cos(theta) 
 	y = noisy_r*math.sin(theta) + r 
-	m = np.array([x, y])
+	m = np.array([x, y, 0])
 
-	for _ in range(N-1):
+	for i in range(1,N):
 		theta = np.pi*np.random.randn(1)
 		x = r*math.cos(theta) + np.random.randn()
 		y = r*math.sin(theta) +r + np.random.randn()
-		m = np.vstack([m,np.array([x,y])])
+		id = i
+		m = np.vstack([m,np.array([x,y, i])])
 	return m
 def find_map_around_robot(xTrue, m, radius):
 	zs = None
 	for landmark in m:
 		if (xTrue[0]-landmark[0])**2+(xTrue[1]-landmark[1])**2<radius**2:
+			landmark 
 			if zs is None:
-				zs = landmark #+ 0.001*np.random.randn(2)
+				zs = landmark 
 			else:
 				#zs = np.vstack([zs, landmark + 0.001*np.random.randn(2)])
 				zs = np.vstack([zs, landmark ])
@@ -102,71 +105,19 @@ def find_map_around_robot(xTrue, m, radius):
 def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	# Prediction Line 2 ~ 4
 	# Line 2
-	xPred = motion_model(xEst,u) # Prediction with noisy control input $u$
-	# Line 3
-	jG = jacob_g(xEst, u)
-	# Line 4
-	PPred = jG@PEst@jG.T + R
-
-	# Update, Line 6~12
-	hat_z = np.zeros((3, len(m)))
-	Hs = np.zeros((len(m),3,3))
-	Psi = np.zeros((len(m),3,3))
-	invPsi = np.zeros((len(m),3,3))
-	for k, landmark in enumerate(m):
-		# Line 7
-		deltaX = landmark[0] - xPred[0]
-		deltaY = landmark[1] - xPred[1]
-		# Line 8
-		q = deltaX**2 + deltaY**2 
-		sqrtq = math.sqrt(q)
-		# Line 9
-		hat_z[0, k] = sqrtq
-		hat_z[1, k] = math.atan2(deltaY, deltaX)-xPred[2]
-		hat_z[2, k] = 0
-		# Line 10
-		Hs[k,:3,:3]=jacob_h(xPred, landmark)
-		# Line 11
-		Psi[k,:3,:3] = Hs[k,:3,:3]@PPred@Hs[k,:3,:3].T +Q
-		invPsi[k,:3,:3] = np.linalg.inv(Psi[k,:3,:3])
+	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
-	# Line 13 ~ 15
-	Ks = np.zeros((len(zs),3,3))
 	mapper = [] # Initialize Correspondence variable $c_t^k$
-	# Line 14
-	for i,z in enumerate(zs):
-		distance = np.zeros(len(m))
-		for k in range(len(m)): # 1:N search which can cause multi-mapping
-			dx = z-hat_z[:,k]
-			distance[k] = dx@invPsi[k,:3,:3]@dx.T
-		j = np.argmin(distance)
-		mapper.append(j)
-	# Line 15
-		Ks[i,:,:] = PPred@Hs[j,:,:].T@invPsi[j,:3,:3]
-	
-	# Line 17~18
-	residual = np.zeros((3))
-	# Line 17: Summation of $K_t^i (z_t^i - \hat{z}_t^{j(i)})$
-	for i, z in enumerate(zs):
-		residual += Ks[i,:3,:3]@(z - hat_z[:,mapper[i]])
+	for z in zs[:1,:]:
+		xPred, PPred, mapper = measurement_update(xPred, PPred, z, m, mapper)
 
-	# Line 18 summation of $K_t^i H_t^{j(i)}$
-	KH = np.zeros((3,3))
-	for i, K in enumerate(Ks):
-		KH += K@Hs[mapper[i],:3,:3]
-	# Line 17
-	xEst = xPred + residual.reshape((3,1))
-	# Line 18
-	PEst = (np.eye(3)-KH)@PPred
-	# Line 19
-	return xEst, PEst, mapper, xPred
-
+	return xPred, PPred, mapper, xPred
 
 def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
-	G1=np.array([1.0, 0.0, r*math.cos(x[2]) - r*math.cos(x[2]+u[1]*dt)],dtype=float)
-	G2=np.array([0.0, 1.0, r*math.sin(x[2]) - r*math.sin(x[2]+u[1]*dt)],dtype=float)
-	G3=np.array([0.0,0.0,1.0],dtype=float)
+	G1=np.array([1.0, 0.0, r*math.cos(x[2]) - r*math.cos(x[2]+u[1]*dt)],dtype=object)
+	G2=np.array([0.0, 1.0, r*math.sin(x[2]) - r*math.sin(x[2]+u[1]*dt)],dtype=object)
+	G3=np.array([0.0,0.0,1.0],dtype=object)
 	G = np.vstack([G1,G2,G3])
 	return G
 
@@ -176,9 +127,9 @@ def jacob_h(x, m):
 	q = deltaX**2 + deltaY**2
 	sqrtq = math.sqrt(q)
 	#z = np.array([sqrtq, math.atan2(deltaY,deltaX)-x[2], m[2]])
-	H1 = np.array([deltaX*sqrtq, -deltaY*sqrtq, 0],dtype=float)
-	H2 = np.array([deltaY, deltaX, -1.0],dtype=float)
-	H3 = np.array([0, 0, 0],dtype=float)
+	H1 = np.array([deltaX*sqrtq, -deltaY*sqrtq, 0],dtype=object)
+	H2 = np.array([deltaY, deltaX, -1.0],dtype=object)
+	H3 = np.array([0, 0, 0],dtype=object)
 	H = np.vstack([H1,H2,H3])/q
 	
 	return H
@@ -186,15 +137,68 @@ def jacob_h(x, m):
 
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 3), dtype=float)
+	output = np.zeros((len(zs), 3), dtype=object)
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
 		q = deltaX**2+deltaY**2
 		output[i, 0] = math.sqrt(q)
 		output[i, 1] = math.atan2(deltaY, deltaX)-x[2]
-		output[i, 2] = 0
+		output[i, 2] = z[2]
 	return output
+
+def motion_update(x, u, P):
+	xPred = motion_model(x,u)
+	G = jacob_g(x, u)
+	PPred = G@P@G.T + R
+
+	return xPred, PPred
+
+def measurement_update(x, P, z, m, mapper):
+	hat_z = np.zeros((3, len(m)))
+	Hs = np.zeros((len(m),3,3))
+	Psi = np.zeros((len(m),3,3))
+	invPsi = np.zeros((len(m),3,3))
+	for k, landmark in enumerate(m):
+		# Line 7
+		deltaX = landmark[0] - x[0]
+		deltaY = landmark[1] - x[1]
+		# Line 8
+		q = deltaX**2 + deltaY**2 
+		sqrtq = math.sqrt(q)
+		# Line 9
+		hat_z[0, k] = sqrtq
+		hat_z[1, k] = math.atan2(deltaY, deltaX)-x[2]
+		hat_z[2, k] = landmark[2]
+		# Line 10
+		Hs[k,:3,:3]=jacob_h(x, landmark)
+		# Line 11
+		Psi[k,:3,:3] = Hs[k,:3,:3]@P@Hs[k,:3,:3].T +Q
+		invPsi[k,:3,:3] = np.linalg.inv(Psi[k,:3,:3])
+	
+	
+	# Line 14
+	distance = np.zeros(len(m))
+	for k in range(len(m)): # 1:N search which can cause multi-mapping
+		dx = z[2]-hat_z[2,k]
+		#distance[k] = dx@invPsi[k,:3,:3]@dx.T
+		distance[k]=dx**2
+	j = np.argmin(distance)
+	mapper.append(j)
+	# Line 15
+	K = P@Hs[j,:,:].T@invPsi[j,:3,:3]
+	
+	# Line 17~18
+	residual = K@(z - hat_z[:,j])
+
+	# Line 18 summation of $K_t^i H_t^{j(i)}$
+	KH = K@Hs[j,:3,:3]
+	# Line 17
+	xEst = x + residual.reshape((3,1))
+	# Line 18
+	PEst = (np.eye(3)-KH)@P
+
+	return xEst, PEst, mapper
 
 
 
@@ -215,7 +219,7 @@ def main():
 	hxDR = xDR
 	hxEst = xEst
 	hxPred = xEst
-	m=make_map(10, 100)
+	m=make_map(10, 150)
 	hz = None
 	
 	while SIM_TIME >= time:
@@ -256,16 +260,15 @@ def main():
 						zs[:, 1].flatten(), "+y")
 				plt.plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xk")
-			for i, z in enumerate(zds):
-				print(i, mapper[i])
-				plt.plot([z[0],m[mapper[i]][0]],
-					  [z[1], m[mapper[i]][1]], "-r")
+#			for i, z in enumerate(zds[:5,:]):
+#				plt.plot([z[0],m[mapper[i]][0]],
+#					  [z[1], m[mapper[i]][1]], "-r")
 			plt.axis("equal")
 			plt.xlim(-20,20)
 			plt.ylim(-5,25)
 			plt.grid(True)
 			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
-			plot_covariance_ellipse(xEst,PEst)
+			#plot_covariance_ellipse(xEst,PEst)
 			plt.pause(0.001)
 			key = None
 			while key =='c':
