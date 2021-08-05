@@ -58,8 +58,10 @@ def motion_model(xTrue, u):
 	r = u[0]/u[1]
 	g = np.array(
 		[
-			xTrue[0]+u[0]*np.math.cos(xTrue[2])*dt,
-			xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
+			#xTrue[0]+u[0]*np.math.cos(xTrue[2])*dt,
+			#xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
+			xTrue[0]-r*math.sin(xTrue[2])+r*math.sin(xTrue[2]+u[1]*dt),
+			xTrue[1]+r*math.cos(xTrue[2])-r*math.cos(xTrue[2]+u[1]*dt),
 			xTrue[2]+u[1]*dt
 		]
 	)
@@ -67,8 +69,10 @@ def motion_model(xTrue, u):
 
 def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
-	G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
-	G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
+	#G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
+	#G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
+	G1=np.array([1.0, 0.0, r*math.cos(x[2])-r*math.cos(x[2]+u[1]*dt)],dtype=object)
+	G2=np.array([0.0, 1.0, r*math.sin(x[2])-r*math.sin(x[2]+u[1]*dt)],dtype=object)
 	G3=np.array([0.0,0.0,1.0],dtype=object)
 	G = np.vstack([G1,G2,G3])
 	return G
@@ -241,7 +245,7 @@ def main():
 			plt.plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k")
 			plt.plot(hxEst[0, :].flatten(),
-					 hxEst[1, :].flatten(), "-c")
+					 hxEst[1, :].flatten(), "--c")
 #			plt.plot(hxPred[0, :].flatten(),
 #					 hxPred[1, :].flatten(), "--r")
 
