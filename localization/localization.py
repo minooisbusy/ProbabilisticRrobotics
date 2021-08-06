@@ -10,7 +10,9 @@ from scipy.spatial.transform import Rotation as Rot
 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
+	Pxy=np.array(Pxy, dtype=float)
 	eigval, eigvec = np.linalg.eig(Pxy)
+
 	if eigval[0] >= eigval[1]:
 	    bigind = 0
 	    smallind = 1
@@ -128,7 +130,7 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	for z in zs:
 		xPred, PPred, mapper = measurement_update(xPred, PPred, z, m, mapper)
 
-	return xPred, PPred, mapper, xPred
+	return xPred, PPred, mapper
 
 
 
@@ -226,14 +228,13 @@ def main():
 		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m)
 
 		zdfs = convert_z2feature(xTrue, zds) # position to feature
-		xEst, PEst, mapper, xPred = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
+		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
 
 
 		### Just plotting code
 		hxTrue = np.hstack((hxTrue,xTrue))
 		hxDR = np.hstack((hxDR, xDR))
 		hxEst = np.hstack((hxEst, xEst))
-		hxPred = np.hstack((hxPred, xPred))
 
 		if show_animation:
 			plt.cla()
@@ -246,8 +247,6 @@ def main():
 					 hxDR[1, :].flatten(), "--k")
 			plt.plot(hxEst[0, :].flatten(),
 					 hxEst[1, :].flatten(), "--c")
-#			plt.plot(hxPred[0, :].flatten(),
-#					 hxPred[1, :].flatten(), "--r")
 
 			# Map
 			plt.plot(m[:, 0],
@@ -258,15 +257,15 @@ def main():
 						zs[:, 1].flatten(), "+y")
 				plt.plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xk")
-#			for i, z in enumerate(zds[:5,:]):
-#				plt.plot([z[0],m[mapper[i]][0]],
-#					  [z[1], m[mapper[i]][1]], "-r")
+			for i, z in enumerate(zds[:5,:]):
+				plt.plot([z[0],m[mapper[i]][0]],
+					  [z[1], m[mapper[i]][1]], "-r")
 			plt.axis("equal")
 			plt.xlim(-20,20)
 			plt.ylim(-5,25)
 			plt.grid(True)
 			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
-			#plot_covariance_ellipse(xEst,PEst)
+			plot_covariance_ellipse(xEst,PEst)
 			plt.pause(0.001)
 			key = None
 			while key =='c':
