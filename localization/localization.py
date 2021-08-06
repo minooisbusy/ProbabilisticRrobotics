@@ -177,13 +177,7 @@ def measurement_update(x, P, z, m, mapper):
 	
 	
 	# Line 14
-	distance = np.zeros(len(m))
-	for k in range(len(m)): # 1:N search which can cause multi-mapping
-		dx = z-hat_z[:,k]
-		distance[k] = dx@invPsi[k,:3,:3]@dx.T
-		#dx = z[2]-hat_z[2,k]
-		#distance[k]=dx**2
-	j = np.argmin(distance)
+	j = match_features(z, hat_z, invPsi)
 	mapper.append(j)
 	# Line 15
 	K = P@Hs[j,:,:].T@invPsi[j,:3,:3]
@@ -200,7 +194,13 @@ def measurement_update(x, P, z, m, mapper):
 
 	return xEst, PEst, mapper
 
-def match_features():
+def match_features(z, hat_z, invPsi):
+	N = len(hat_z) # number of Landmark (size of map)
+	distance = np.zeros(len(hat_z))
+	for k in range(len(hat_z)): # 1:N search which can cause multi-mapping
+		dx = z-hat_z[:,k]
+		distance[k] = dx@invPsi[k,:3,:3]@dx.T
+	j = np.argmin(distance)
 	return 1
 
 
@@ -211,7 +211,7 @@ def main():
 	# Initialize variables
 	# states
 	xEst = np.zeros((3,1)) # estimated state mean
-	PEst = 0.000003*np.eye(3) # Estimated state covariance
+	PEst = 0.0003*np.eye(3) # Estimated state covariance
 
 	xTrue = np.zeros((3,1)) # true state
 	xDR = np.zeros((3,1)) # Dead Reckoning: initial state evolution with noisy input
