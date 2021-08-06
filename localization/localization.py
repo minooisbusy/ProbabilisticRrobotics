@@ -85,7 +85,6 @@ def jacob_h(x, m):
 	deltaY = m[1] - x[1]
 	q = deltaX**2 + deltaY**2
 	sqrtq = math.sqrt(q)
-	#z = np.array([sqrtq, math.atan2(deltaY,deltaX)-x[2], m[2]])
 	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0],dtype=object)
 	H2 = np.array([deltaY/q, -deltaX/q, -1.0],dtype=object)
 	H3 = np.array([0, 0, 0],dtype=object)
@@ -94,7 +93,7 @@ def jacob_h(x, m):
 	return H
 	
 def make_map(r, N): 
-	noisy_r = r + 0.01*np.random.randn()
+	noisy_r = r + np.random.randn()
 	
 	theta = np.pi*2*np.random.randn(1)
 	x = noisy_r*math.cos(theta) 
@@ -103,8 +102,9 @@ def make_map(r, N):
 
 	for i in range(1,N):
 		theta = np.pi*np.random.randn(1)
-		x = r*math.cos(theta) + np.random.randn()
-		y = r*math.sin(theta) +r + np.random.randn()
+		noisy_r = r + np.random.randn()
+		x = noisy_r*math.cos(theta) 
+		y = noisy_r*math.sin(theta) +r
 		id = i
 		m = np.vstack([m,np.array([x,y, i])])
 	return m
@@ -199,6 +199,9 @@ def measurement_update(x, P, z, m, mapper):
 	PEst = (np.eye(3)-KH)@P
 
 	return xEst, PEst, mapper
+
+def match_features():
+	return 1
 
 
 
