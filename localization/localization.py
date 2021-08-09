@@ -34,7 +34,6 @@ def plot_covariance_ellipse(xEst, PEst):
 # Global variables
 dt = 0.1 # time intervals
 N = 200 # number of states
-#Q = np.diag([1e-10,1e-10,1e-10])
 R = np.diag([0.1, 0.1, 0])**2
 Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
 
@@ -116,7 +115,6 @@ def find_map_around_robot(xTrue, m, radius):
 			if zs is None:
 				zs = landmark 
 			else:
-				#zs = np.vstack([zs, landmark + 0.001*np.random.randn(2)])
 				zs = np.vstack([zs, landmark ])
 	
 	return zs
@@ -178,7 +176,6 @@ def measurement_update(x, P, z, m, mapper):
 	
 	# Line 14
 	j = match_features(z, hat_z, invPsi)
-	print(j)
 	mapper.append(j)
 	# Line 15
 	K = P@Hs[j,:,:].T@invPsi[j,:3,:3]
