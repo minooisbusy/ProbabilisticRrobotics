@@ -1,3 +1,8 @@
+# Probabilsitic Rorotics Chapter 7. Localization algorithm(Table 7.1 and 7.2) implementation
+# Original Author: Atsushi Sakai
+# Author: Minwoo shin
+# Date: 09/ Aug/ 21
+
 import enum
 from numpy.core.numeric import zeros_like
 import sys
@@ -8,6 +13,18 @@ import matplotlib.pyplot as plt
 from scipy.linalg import sqrtm
 from scipy.spatial.transform import Rotation as Rot
 
+# Global variables
+dt = 0.1 # time intervals
+N = 200 # number of states
+R = np.diag([0.1, 0.1, 0])**2
+Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
+
+# Noise parameters
+INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
+GPS_NOISE = np.diag([0.1, 0.1]) ** 2
+
+# Known correspondences
+KNOWN = True
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
@@ -31,15 +48,6 @@ def plot_covariance_ellipse(xEst, PEst):
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
 	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
 	plt.plot(px, py, "--r")
-# Global variables
-dt = 0.1 # time intervals
-N = 200 # number of states
-R = np.diag([0.1, 0.1, 0])**2
-Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
-
-# Noise parameters
-INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
-GPS_NOISE = np.diag([0.1, 0.1]) ** 2
 def calc_input():
 	v = 1.0
 	yaw_rate = 0.1
@@ -125,10 +133,9 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
 	mapper = [] # Initialize Correspondence variable $c_t^k$
-	for z in zs:
-		xPred, PPred, mapper = measurement_update(xPred, PPred, z, m, mapper)
+	xEst, PEst, mapper = measurement_update(xPred, PPred, zs[:,:], m, mapper)
 
-	return xPred, PPred, mapper
+	return xEst, PEst, mapper
 
 
 
@@ -151,11 +158,11 @@ def motion_update(x, u, P):
 
 	return xPred, PPred
 
-def measurement_update(x, P, z, m, mapper):
-	hat_z = np.zeros((3, len(m)))
-	Hs = np.zeros((len(m),3,3))
-	Psi = np.zeros((len(m),3,3))
-	invPsi = np.zeros((len(m),3,3))
+def measurement_update(x, PPred, zs, m, mapper):
+	N=len(m)
+	hat_z = np.zeros((3, N))
+	Hs = np.zeros((N,3,3))
+	Psi = np.zeros((N,3,3))
 	for k, landmark in enumerate(m):
 		# Line 7
 		deltaX = landmark[0] - x[0]
@@ -170,40 +177,40 @@ def measurement_update(x, P, z, m, mapper):
 		# Line 10
 		Hs[k,:3,:3]=jacob_h(x, landmark)
 		# Line 11
-		Psi[k,:3,:3] = Hs[k,:3,:3]@P@Hs[k,:3,:3].T +Q
-		invPsi[k,:3,:3] = np.linalg.inv(Psi[k,:3,:3])
+		Psi[k,:3,:3] =(Hs[k,:3,:3].T@PPred@Hs[k,:3,:3] +Q).astype(float)
 	
-	
-	# Line 14
-	j = match_features(z, hat_z, invPsi)
-	mapper.append(j)
-	# Line 15
-	K = P@Hs[j,:,:].T@invPsi[j,:3,:3]
-	
-	# Line 17~18
-	residual = K@(z - hat_z[:,j])
+	xEst = x
+	PEst = np.eye(len(x))
+	for i, z in enumerate(zs):
+		invPsi = np.linalg.inv(Psi[i,:,:].astype(float))
+		j = match_features(z, hat_z, invPsi, known=KNOWN)
+		j = int(j)
+		mapper.append(j)
+		#K = (PPred@Hs[j,:,:].T@invPsi).astype(float)
+		K = (PPred@Hs[j,:,:].T@Psi[i,:,:]).astype(float)
+		residual = (z-hat_z[:,j]).reshape(3,1)
+		xEst += K@residual.astype(float)
+		PEst -= K@Hs[j,:,:]
+	PEst = PEst@PPred
+	xEst = xEst
 
-	# Line 18 summation of $K_t^i H_t^{j(i)}$
-	KH = K@Hs[j,:3,:3]
-	# Line 17
-	xEst = x + residual.reshape((3,1))
-	# Line 18
-	PEst = (np.eye(3)-KH)@P
 
 	return xEst, PEst, mapper
 
-def match_features(z, hat_z, invPsi):
+def match_features(z, hat_z, invPsi, known=False):
 	N = len(hat_z[0,:]) # number of Landmark (size of map)
 	distance = np.zeros(N)
 	for k in range(N): # 1:N search which can cause multi-mapping
 		dx = z-hat_z[:,k]
-		distance[k] = dx@invPsi[k,:3,:3]@dx.T
+		distance[k] = dx@invPsi@dx.T
 	j = np.argmin(distance)
+	if (z[2] != hat_z[2,j]) and KNOWN:
+		return np.argwhere(hat_z[2,:]==z[2])
 	return j
 
 
 
-SIM_TIME = 30
+SIM_TIME = 60
 show_animation = True
 def main():
 	# Initialize variables
@@ -237,6 +244,8 @@ def main():
 		hxDR = np.hstack((hxDR, xDR))
 		hxEst = np.hstack((hxEst, xEst))
 
+		
+
 		if show_animation:
 			plt.cla()
 			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
@@ -258,7 +267,7 @@ def main():
 						zs[:, 1].flatten(), "+y")
 				plt.plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xk")
-			for i, z in enumerate(zds[:5,:]):
+			for i, z in enumerate(zds[:,:]):
 				plt.plot([z[0],m[mapper[i]][0]],
 					  [z[1], m[mapper[i]][1]], "-r")
 			plt.axis("equal")
