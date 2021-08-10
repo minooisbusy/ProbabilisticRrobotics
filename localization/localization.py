@@ -1,3 +1,8 @@
+# Probabilsitic Rorotics Chapter 7. Localization algorithm(Table 7.1 and 7.2) implementation
+# Original Author: Atsushi Sakai
+# Author: Minwoo shin
+# Date: 09/ Aug/ 21
+
 import enum
 from numpy.core.numeric import zeros_like
 import sys
@@ -8,6 +13,18 @@ import matplotlib.pyplot as plt
 from scipy.linalg import sqrtm
 from scipy.spatial.transform import Rotation as Rot
 
+# Global variables
+dt = 0.1 # time intervals
+N = 200 # number of states
+R = np.diag([1, 1, 0])**2
+Q = np.diag([0.1, 0.1, np.deg2rad(30.0)])**2
+
+# Noise parameters
+INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
+GPS_NOISE = np.diag([0.1, 0.1]) ** 2
+
+# Known correspondences
+KNOWN = True 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
@@ -28,31 +45,24 @@ def plot_covariance_ellipse(xEst, PEst):
 	angle = math.atan2(eigvec[1, bigind], eigvec[0, bigind])
 	rot = Rot.from_euler('z', angle).as_matrix()[0:2, 0:2]
 	fx = rot @ (np.array([x, y]))
-	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
-	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
+	px = np.array(3*fx[0, :] + xEst[0, 0]).flatten()
+	py = np.array(3*fx[1, :] + xEst[1, 0]).flatten()
 	plt.plot(px, py, "--r")
-# Global variables
-dt = 0.1 # time intervals
-N = 200 # number of states
-#Q = np.diag([1e-10,1e-10,1e-10])
-R = np.diag([0.1, 0.1, 0])**2
-Q = np.diag([0.1, 0.1, np.deg2rad(1.0)])**2
 
-# Noise parameters
-INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
-GPS_NOISE = np.diag([0.1, 0.1]) ** 2
 def calc_input():
 	v = 1.0
 	yaw_rate = 0.1
 	u = np.array([[v, yaw_rate]]).T # 2x1
 	return u
 
-def observation(xTrue, xd, u, m): # This method is not a observation model h(x)
+def observation(xTrue, xd, u, m, max_measure): # This method is not a observation model h(x)
 	xTrue = motion_model(xTrue, u)
 	zs = find_map_around_robot(xTrue, m, 3) # True position based observation
+	zs = zs[:max_measure,:]
 	ud = u + INPUT_NOISE@np.random.randn(2,1) # Noisy input!
 	z_noise =0.01*np.insert(np.random.randn(*(zs.shape))[:,:2],2,0,axis=1)
-	zds = zs + z_noise
+	zds = zs #+ z_noise
+	
 	xDR = motion_model(xd, ud)
 	return xTrue, zs, zds, xDR, ud
 
@@ -73,8 +83,8 @@ def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
 	#G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
 	#G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
-	G1=np.array([1.0, 0.0, r*math.cos(x[2])-r*math.cos(x[2]+u[1]*dt)],dtype=object)
-	G2=np.array([0.0, 1.0, r*math.sin(x[2])-r*math.sin(x[2]+u[1]*dt)],dtype=object)
+	G1=np.array([1.0, 0.0, -r*math.cos(x[2])+r*math.cos(x[2]+u[1]*dt)],dtype=object)
+	G2=np.array([0.0, 1.0, -r*math.sin(x[2])+r*math.sin(x[2]+u[1]*dt)],dtype=object)
 	G3=np.array([0.0,0.0,1.0],dtype=object)
 	G = np.vstack([G1,G2,G3])
 	return G
@@ -116,7 +126,6 @@ def find_map_around_robot(xTrue, m, radius):
 			if zs is None:
 				zs = landmark 
 			else:
-				#zs = np.vstack([zs, landmark + 0.001*np.random.randn(2)])
 				zs = np.vstack([zs, landmark ])
 	
 	return zs
@@ -127,10 +136,9 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
 	mapper = [] # Initialize Correspondence variable $c_t^k$
-	for z in zs:
-		xPred, PPred, mapper = measurement_update(xPred, PPred, z, m, mapper)
+	xEst, PEst, mapper = measurement_update(xPred, PPred, zs[:,:], m, mapper)
 
-	return xPred, PPred, mapper
+	return xEst, PEst, mapper
 
 
 
@@ -153,11 +161,11 @@ def motion_update(x, u, P):
 
 	return xPred, PPred
 
-def measurement_update(x, P, z, m, mapper):
-	hat_z = np.zeros((3, len(m)))
-	Hs = np.zeros((len(m),3,3))
-	Psi = np.zeros((len(m),3,3))
-	invPsi = np.zeros((len(m),3,3))
+def measurement_update(x, PPred, zs, m, mapper):
+	N=len(m)
+	hat_z = np.zeros((3, N))
+	Hs = np.zeros((N,3,3))
+	Psi = np.zeros((N,3,3))
 	for k, landmark in enumerate(m):
 		# Line 7
 		deltaX = landmark[0] - x[0]
@@ -172,47 +180,43 @@ def measurement_update(x, P, z, m, mapper):
 		# Line 10
 		Hs[k,:3,:3]=jacob_h(x, landmark)
 		# Line 11
-		Psi[k,:3,:3] = Hs[k,:3,:3]@P@Hs[k,:3,:3].T +Q
-		invPsi[k,:3,:3] = np.linalg.inv(Psi[k,:3,:3])
+		Psi[k,:3,:3] =(Hs[k,:3,:3]@PPred@Hs[k,:3,:3].T +Q).astype(float)
 	
-	
-	# Line 14
-	j = match_features(z, hat_z, invPsi)
-	print(j)
-	mapper.append(j)
-	# Line 15
-	K = P@Hs[j,:,:].T@invPsi[j,:3,:3]
-	
-	# Line 17~18
-	residual = K@(z - hat_z[:,j])
+	xEst = x
+	PEst = PPred.copy()
+	for i, z in enumerate(zs):
+		invPsi = np.linalg.inv(Psi[i,:,:].astype(float))
+		j = int(match_features(z, hat_z, invPsi, known=KNOWN))
+		mapper.append(j)
+		invPsi = np.linalg.inv(Psi[j,:,:].astype(float))
+		K = (PEst@Hs[j,:,:].T@invPsi).astype(float)
+		residual = (z-hat_z[:,j]).reshape(3,1)
+		xEst += K@residual.astype(float)
+		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
 
-	# Line 18 summation of $K_t^i H_t^{j(i)}$
-	KH = K@Hs[j,:3,:3]
-	# Line 17
-	xEst = x + residual.reshape((3,1))
-	# Line 18
-	PEst = (np.eye(3)-KH)@P
 
 	return xEst, PEst, mapper
 
-def match_features(z, hat_z, invPsi):
+def match_features(z, hat_z, invPsi, known=False):
 	N = len(hat_z[0,:]) # number of Landmark (size of map)
 	distance = np.zeros(N)
 	for k in range(N): # 1:N search which can cause multi-mapping
 		dx = z-hat_z[:,k]
-		distance[k] = dx@invPsi[k,:3,:3]@dx.T
+		distance[k] = dx@invPsi@dx.T/np.linalg.det(invPsi)
 	j = np.argmin(distance)
+	if (z[2] != hat_z[2,j]) and KNOWN:
+		return np.argwhere(hat_z[2,:]==z[2])
 	return j
 
 
 
-SIM_TIME = 30
+SIM_TIME = 60
 show_animation = True
 def main():
 	# Initialize variables
 	# states
 	xEst = np.zeros((3,1)) # estimated state mean
-	PEst = 0.000003*np.eye(3) # Estimated state covariance
+	PEst = 0.003*np.eye(3) # Estimated state covariance
 
 	xTrue = np.zeros((3,1)) # true state
 	xDR = np.zeros((3,1)) # Dead Reckoning: initial state evolution with noisy input
@@ -223,13 +227,15 @@ def main():
 	hxDR = xDR
 	hxEst = xEst
 	hxPred = xEst
+	hPxcoord = PEst[0,0]
+	hPycoord = PEst[1,1]
 	m=make_map(10, 150)
 	hz = None
 	
 	while SIM_TIME >= time:
 		time += dt
 		u = calc_input() # linear and angular velocity
-		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m)
+		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m,99)
 
 		zdfs = convert_z2feature(xTrue, zds) # position to feature
 		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
@@ -239,8 +245,13 @@ def main():
 		hxTrue = np.hstack((hxTrue,xTrue))
 		hxDR = np.hstack((hxDR, xDR))
 		hxEst = np.hstack((hxEst, xEst))
+		hPxcoord = np.hstack((hPxcoord, PEst[0,0]))
+		hPycoord = np.hstack((hPycoord, PEst[1,1]))
+
+		
 
 		if show_animation:
+			plt.subplot(1,3,1)
 			plt.cla()
 			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
 			# True pose trajectory
@@ -261,7 +272,7 @@ def main():
 						zs[:, 1].flatten(), "+y")
 				plt.plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xk")
-			for i, z in enumerate(zds[:5,:]):
+			for i, z in enumerate(zds[:,:]):
 				plt.plot([z[0],m[mapper[i]][0]],
 					  [z[1], m[mapper[i]][1]], "-r")
 			plt.axis("equal")
@@ -270,6 +281,12 @@ def main():
 			plt.grid(True)
 			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
 			plot_covariance_ellipse(xEst,PEst)
+			plt.subplot(1,3,2)
+			plt.ylim(0,0.3)
+			plt.plot(hPxcoord,color="k")
+			plt.subplot(1,3,3)
+			plt.ylim(0,0.3)
+			plt.plot(hPycoord,color="k")
 			plt.pause(0.001)
 			key = None
 			while key =='c':
