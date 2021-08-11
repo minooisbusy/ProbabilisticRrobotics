@@ -31,7 +31,7 @@ KNOWN =  False
 # Observation noise switch, True = measurements are noisy
 NOISE = True 
 
-def plot_covariance_ellipse(xEst, PEst):
+def plot_covariance_ellipse(xEst, PEst, label):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
 	eigval, eigvec = np.linalg.eig(Pxy)
@@ -53,7 +53,7 @@ def plot_covariance_ellipse(xEst, PEst):
 	fx = rot @ (np.array([x, y]))
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
 	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
-	plt.plot(px, py, "--r")
+	plt.plot(px, py, "--r",label=label)
 
 def calc_input():
 	v = 1.0
@@ -280,17 +280,19 @@ def main():
 #						zs[:, 1].flatten(), "+g")
 			# Observed Noisy landmakr position
 				plt.plot(zds[:, 0].flatten(),
-						zds[:, 1].flatten(), "xy")
+						zds[:, 1].flatten(), "xy", label="Noisy observations")
 			# True pose trajectory
 			plt.plot(hxTrue[0, :].flatten(),
-					 hxTrue[1, :].flatten(), "--",color="blue")
+					 hxTrue[1, :].flatten(), "--",color="blue", label="True trajectory")
 			plt.plot(hxTrue[0,-1],
-					 hxTrue[1,-1], ".b")
+					 hxTrue[1,-1], ".b", label="Current true position")
 			# Dead Reckoning position trajectory
 			plt.plot(hxDR[0, :].flatten(),
-					 hxDR[1, :].flatten(), "--k")
+					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
+
+			# Estimated pose trajectory
 			plt.plot(hxEst[0, :].flatten(),
-					 hxEst[1, :].flatten(), "-", color="lime")
+					 hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
 
 
 			plt.axis("equal")
@@ -298,7 +300,7 @@ def main():
 			plt.ylim(-5,25)
 			plt.grid(True)
 			plt.title('Simulation plot')
-			plot_covariance_ellipse(xEst,PEst)
+			plot_covariance_ellipse(xEst,PEst, label='State covariance')
 			# correspondences, red: outlier
 #			for i, z in enumerate(zds[:,:]):
 #				j = mapper[i]
@@ -309,6 +311,7 @@ def main():
 #				else:
 #					plt.plot([z[0],m[j][0]],
 #						[z[1], m[j][1]], "-g")
+			plt.legend()
 			plt.subplot(1,3,2)
 			plt.title('x-coord variance')
 			#plt.ylim(0,0.3)
