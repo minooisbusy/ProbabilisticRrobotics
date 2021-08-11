@@ -1,4 +1,4 @@
-# Probabilsitic Rorotics Chapter 7. Localization algorithm(Table 7.1 and 7.2) implementation
+# Probabilsitic Rorotics Chapter 7. Localization algorithm(Table 7.2 and 7.3) implementation
 # Original Author: Atsushi Sakai
 # Author: Minwoo shin
 # Date: 09/ Aug/ 21
@@ -16,15 +16,21 @@ from scipy.spatial.transform import Rotation as Rot
 # Global variables
 dt = 0.1 # time intervals
 N = 200 # number of states
-R = np.diag([1, 1, 0])**2
-Q = np.diag([0.1, 0.1, np.deg2rad(30.0)])**2
 
 # Noise parameters
-INPUT_NOISE = np.diag([1, np.deg2rad(30.0)]) ** 2
-GPS_NOISE = np.diag([0.1, 0.1]) ** 2
+V_NOISE = 1.2
+W_NOISE =np.deg2rad(30.0)
+R_NOISE = 0.01 # observation noise
+PHI_NOISE = np.deg2rad(30.0)
+R = np.diag([V_NOISE, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+Q = np.diag([30, 30, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
-# Known correspondences
-KNOWN = True 
+# Known correspondences switch, True = Known correspondences
+KNOWN =  False
+# Observation noise switch, True = measurements are noisy
+NOISE = True 
+
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
@@ -45,8 +51,8 @@ def plot_covariance_ellipse(xEst, PEst):
 	angle = math.atan2(eigvec[1, bigind], eigvec[0, bigind])
 	rot = Rot.from_euler('z', angle).as_matrix()[0:2, 0:2]
 	fx = rot @ (np.array([x, y]))
-	px = np.array(3*fx[0, :] + xEst[0, 0]).flatten()
-	py = np.array(3*fx[1, :] + xEst[1, 0]).flatten()
+	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
+	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
 	plt.plot(px, py, "--r")
 
 def calc_input():
@@ -55,13 +61,15 @@ def calc_input():
 	u = np.array([[v, yaw_rate]]).T # 2x1
 	return u
 
-def observation(xTrue, xd, u, m, max_measure): # This method is not a observation model h(x)
+def observation(xTrue, xd, u, m, SWITCH): # This method is not a observation model h(x)
 	xTrue = motion_model(xTrue, u)
 	zs = find_map_around_robot(xTrue, m, 3) # True position based observation
-	zs = zs[:max_measure,:]
 	ud = u + INPUT_NOISE@np.random.randn(2,1) # Noisy input!
-	z_noise =0.01*np.insert(np.random.randn(*(zs.shape))[:,:2],2,0,axis=1)
-	zds = zs #+ z_noise
+	if SWITCH is True:
+		z_noise =R_NOISE*np.insert(np.random.randn(*(zs.shape))[:,:2],2,0,axis=1)
+		zds = zs + z_noise
+	else:
+		zds = zs
 	
 	xDR = motion_model(xd, ud)
 	return xTrue, zs, zds, xDR, ud
@@ -131,8 +139,6 @@ def find_map_around_robot(xTrue, m, radius):
 	return zs
 
 def ekf_estimation(xEst, PEst, zs, u, m, testZ):
-	# Prediction Line 2 ~ 4
-	# Line 2
 	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
 	mapper = [] # Initialize Correspondence variable $c_t^k$
@@ -167,27 +173,37 @@ def measurement_update(x, PPred, zs, m, mapper):
 	Hs = np.zeros((N,3,3))
 	Psi = np.zeros((N,3,3))
 	for k, landmark in enumerate(m):
-		# Line 7
+
+		# $delta$
 		deltaX = landmark[0] - x[0]
 		deltaY = landmark[1] - x[1]
-		# Line 8
+
+		# $q$
 		q = deltaX**2 + deltaY**2 
+
+		# squared root of $q$
 		sqrtq = math.sqrt(q)
-		# Line 9
+
+		# \hat{z}
 		hat_z[0, k] = sqrtq
 		hat_z[1, k] = math.atan2(deltaY, deltaX)-x[2]
 		hat_z[2, k] = landmark[2]
-		# Line 10
+
+		# $H$
 		Hs[k,:3,:3]=jacob_h(x, landmark)
-		# Line 11
+
+		# $\Psi$
 		Psi[k,:3,:3] =(Hs[k,:3,:3]@PPred@Hs[k,:3,:3].T +Q).astype(float)
 	
 	xEst = x
 	PEst = PPred.copy()
 	for i, z in enumerate(zs):
+		# $\argmin dx^T*\Psi_i^{-1}*dx
 		invPsi = np.linalg.inv(Psi[i,:,:].astype(float))
 		j = int(match_features(z, hat_z, invPsi, known=KNOWN))
 		mapper.append(j)
+
+		# Last step
 		invPsi = np.linalg.inv(Psi[j,:,:].astype(float))
 		K = (PEst@Hs[j,:,:].T@invPsi).astype(float)
 		residual = (z-hat_z[:,j]).reshape(3,1)
@@ -202,11 +218,12 @@ def match_features(z, hat_z, invPsi, known=False):
 	distance = np.zeros(N)
 	for k in range(N): # 1:N search which can cause multi-mapping
 		dx = z-hat_z[:,k]
-		distance[k] = dx@invPsi@dx.T/np.linalg.det(invPsi)
+		distance[k] = (dx@invPsi@dx.T)/(np.linalg.det(2*np.pi*invPsi)) # exponential and squared root are monotonically increase, so i peel of these guys.
 	j = np.argmin(distance)
 	if (z[2] != hat_z[2,j]) and KNOWN:
 		return np.argwhere(hat_z[2,:]==z[2])
 	return j
+
 
 
 
@@ -221,8 +238,8 @@ def main():
 	xTrue = np.zeros((3,1)) # true state
 	xDR = np.zeros((3,1)) # Dead Reckoning: initial state evolution with noisy input
 	time = 0.0
-	# Generate states (True, Deadreckoning, Map)
 
+	# Generate states (True, Deadreckoning, Map)
 	hxTrue = xTrue
 	hxDR = xDR
 	hxEst = xEst
@@ -235,13 +252,13 @@ def main():
 	while SIM_TIME >= time:
 		time += dt
 		u = calc_input() # linear and angular velocity
-		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m,99)
+		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m, SWITCH=NOISE)
 
 		zdfs = convert_z2feature(xTrue, zds) # position to feature
 		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
 
 
-		### Just plotting code
+		### belows are Just plotting code
 		hxTrue = np.hstack((hxTrue,xTrue))
 		hxDR = np.hstack((hxDR, xDR))
 		hxEst = np.hstack((hxEst, xEst))
@@ -254,38 +271,51 @@ def main():
 			plt.subplot(1,3,1)
 			plt.cla()
 			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
+			# Map
+			plt.plot(m[:, 0],
+					 m[:, 1],".k")
+			# Observed Real landmark position
+			if len(zs) != 0:
+#				plt.plot(zs[:, 0].flatten(),
+#						zs[:, 1].flatten(), "+g")
+			# Observed Noisy landmakr position
+				plt.plot(zds[:, 0].flatten(),
+						zds[:, 1].flatten(), "xy")
 			# True pose trajectory
 			plt.plot(hxTrue[0, :].flatten(),
-					 hxTrue[1, :].flatten(), "-b")
+					 hxTrue[1, :].flatten(), "--",color="blue")
+			plt.plot(hxTrue[0,-1],
+					 hxTrue[1,-1], ".b")
 			# Dead Reckoning position trajectory
 			plt.plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k")
 			plt.plot(hxEst[0, :].flatten(),
-					 hxEst[1, :].flatten(), "--c")
+					 hxEst[1, :].flatten(), "-", color="lime")
 
-			# Map
-			plt.plot(m[:, 0],
-					 m[:, 1],".g")
-			# Real landmark position
-			if len(zs) != 0:
-				plt.plot(zs[:, 0].flatten(),
-						zs[:, 1].flatten(), "+y")
-				plt.plot(zds[:, 0].flatten(),
-						zds[:, 1].flatten(), "xk")
-			for i, z in enumerate(zds[:,:]):
-				plt.plot([z[0],m[mapper[i]][0]],
-					  [z[1], m[mapper[i]][1]], "-r")
+
 			plt.axis("equal")
 			plt.xlim(-20,20)
 			plt.ylim(-5,25)
 			plt.grid(True)
-			plt.title('{},{},{}'.format(xEst[0],xEst[1],xEst[2]))
+			plt.title('Simulation plot')
 			plot_covariance_ellipse(xEst,PEst)
+			# correspondences, red: outlier
+#			for i, z in enumerate(zds[:,:]):
+#				j = mapper[i]
+#				if  j < 0:
+#					j = abs(j)
+#					plt.plot([z[0],m[j][0]],
+#						[z[1], m[j][1]], "-r")
+#				else:
+#					plt.plot([z[0],m[j][0]],
+#						[z[1], m[j][1]], "-g")
 			plt.subplot(1,3,2)
-			plt.ylim(0,0.3)
+			plt.title('x-coord variance')
+			#plt.ylim(0,0.3)
 			plt.plot(hPxcoord,color="k")
 			plt.subplot(1,3,3)
-			plt.ylim(0,0.3)
+			plt.title('y-coord variance')
+			#plt.ylim(0,0.3)
 			plt.plot(hPycoord,color="k")
 			plt.pause(0.001)
 			key = None
