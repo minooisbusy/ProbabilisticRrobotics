@@ -3,6 +3,9 @@
 # Author: Minwoo shin
 # Date: 09/ Aug/ 21
 
+#TODO: 원본의 경우 K가 4x2이다. 굳이 H state의 길이만큼 유지할 필요가 없다는 것이다. 이부분을 갱신해보자
+
+
 import enum
 from numpy.core.numeric import zeros_like
 import sys
@@ -22,14 +25,14 @@ W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-Q = np.diag([30, 30, 1e16, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+R = np.diag([V_NOISE, V_NOISE, W_NOISE, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+Q = np.diag([30, 30, 1e-16, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
 KNOWN =  True
 # Observation noise switch, True = measurements are noisy
-NOISE = True 
+NOISE = False
 
 def plot_covariance_ellipse(xEst, PEst, label):
 	Pxy = PEst[0:2, 0:2]
@@ -80,9 +83,10 @@ def motion_model(xTrue, u):
 		[
 			#xTrue[0]+u[0]*np.np.cos(xTrue[2])*dt,
 			#xTrue[1]+u[0]*np.np.sin(xTrue[2])*dt,
-			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt),
-			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt),
-			np.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
+			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt), #g1
+			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt), #g2
+			#np.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
+			xTrue[2]+u[1]*dt,
 			u[0]
 		]
 	)
@@ -92,17 +96,17 @@ def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
 	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
 	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
-	d1dth = -r*np.cos(x[2])+r*np.cos(x[2]+u[1]*dt)
-	d1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
-	d1dth=np.squeeze(d1dth)[()]
-	d1dv=np.squeeze(d1dv)[()]
+	df1dth = -r*np.cos(x[2])+r*np.cos(x[2]+u[1]*dt)
+	df1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
+	df1dth=np.squeeze(df1dth)[()]
+	df1dv=np.squeeze(df1dv)[()]
 
-	d2dv = (np.cos(x[2])-np.cos(x[2]+u[1]*dt))/u[1]
-	d2dth = -r*np.sin(x[2])+r*np.sin(x[2]+u[1]*dt)
-	d2dv=np.squeeze(d2dv)[()]
-	d2dth=np.squeeze(d2dth)[()]
-	G1=np.array([1.0, 0.0, d1dth, d1dv])
-	G2=np.array([0.0, 1.0, d2dth, d2dv])
+	df2dv = (np.cos(x[2])-np.cos(x[2]+u[1]*dt))/u[1]
+	df2dth = -r*np.sin(x[2])+r*np.sin(x[2]+u[1]*dt)
+	df2dv=np.squeeze(df2dv)[()]
+	df2dth=np.squeeze(df2dth)[()]
+	G1=np.array([1.0, 0.0, df1dth, df1dv])
+	G2=np.array([0.0, 1.0, df2dth, df2dv])
 	G3=np.array([0.0, 0.0,1.0, 0.0])
 	G4=np.array([0.0, 0.0, 0.0, 1.0])
 	G = np.vstack([G1,G2,G3, G4])
@@ -154,11 +158,11 @@ def find_map_around_robot(xTrue, m, radius):
 	
 	return zs
 
-def ekf_estimation(xEst, PEst, zs, u, m, testZ):
+def ekf_estimation(xEst, PEst, zs, u, m, testZ=None):
 	xPred, PPred = motion_update(xEst,u, PEst) # Prediction with noisy control input $u$
 	
 	mapper = [] # Initialize Correspondence variable $c_t^k$
-	xEst, PEst, mapper = measurement_update(xPred, PPred, zs[:,:], m, mapper)
+	xEst, PEst, mapper = measurement_update(xPred, PPred, zs, m, mapper)
 
 	return xEst, PEst, mapper
 
@@ -177,7 +181,7 @@ def convert_z2feature(x, zs):
 	return output
 
 def motion_update(x, u, P):
-	xPred = motion_model(x,u)
+	xPred = motion_model(x, u)
 	G = jacob_g(x, u)
 	PPred = G@P@G.T + R
 
@@ -209,21 +213,21 @@ def measurement_update(x, PPred, zs, m, mapper):
 		Hs[k,:,:]=jacob_h(x, landmark)
 
 		# $\Psi$
-		Psi[k,:,:] =(Hs[k,:,:]@PPred@Hs[k,:,:].T + Q).astype(float)
+		Psi[k,:,:] =(Hs[k,:,:]@PPred@Hs[k,:,:].T + Q)
 	
-	xEst = x
+	xEst = x.copy()
 	PEst = PPred.copy()
 	for i, z in enumerate(zs):
 		# $\argmin dx^T*\Psi_i^{-1}*dx
-		invPsi = np.linalg.inv(Psi[i,:,:].astype(float))
+		invPsi = np.linalg.inv(Psi[i,:,:])
 		j = int(match_features(z, hat_z, invPsi, known=KNOWN))
 		mapper.append(j)
 
 		# Last step
 		invPsi = np.linalg.inv(Psi[j,:,:])
 		K = (PEst@Hs[j,:,:].T@invPsi)
-		residual = (z-hat_z[:,j])
-		incremental = (K@residual).reshape(4,1)
+		residual = (z-hat_z[:,j]).reshape(4,1)
+		incremental = (K@residual)
 		xEst += incremental
 		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
 
@@ -250,7 +254,7 @@ def main():
 	# Initialize variables
 	# states
 	xEst = np.zeros((4,1)) # estimated state mean
-	PEst = 0.003*np.eye(4) # Estimated state covariance
+	PEst = 1e-16*np.eye(4) # Estimated state covariance
 
 	xTrue = np.zeros((4,1)) # true state
 	xDR = np.zeros((4,1)) # Dead Reckoning: initial state evolution with noisy input
