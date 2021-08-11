@@ -7,7 +7,6 @@ import enum
 from numpy.core.numeric import zeros_like
 import sys
 import numpy as np
-import math
 
 import matplotlib.pyplot as plt
 from scipy.linalg import sqrtm
@@ -22,8 +21,9 @@ V_NOISE = 1.2
 W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
-R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-Q = np.diag([30, 30, 1e16, 1e16, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+#R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+R = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])**2  	  # motion model uncertainty diag(x, y, theta)
+Q = np.diag([10, 10, 1e16, 1e16, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
@@ -43,12 +43,12 @@ def plot_covariance_ellipse(xEst, PEst, label):
 	    bigind = 1
 	    smallind = 0
 
-	t = np.arange(0, 2 * math.pi + 0.1, 0.1)
-	a = math.sqrt(abs(eigval[bigind]))
-	b = math.sqrt(abs(eigval[smallind]))
-	x = [a * math.cos(it) for it in t]
-	y = [b * math.sin(it) for it in t]
-	angle = math.atan2(eigvec[1, bigind], eigvec[0, bigind])
+	t = np.arange(0, 2 * np.pi + 0.1, 0.1)
+	a = np.sqrt(abs(eigval[bigind]))
+	b = np.sqrt(abs(eigval[smallind]))
+	x = [a * np.cos(it) for it in t]
+	y = [b * np.sin(it) for it in t]
+	angle = np.arctan2(eigvec[1, bigind], eigvec[0, bigind])
 	rot = Rot.from_euler('z', angle).as_matrix()[0:2, 0:2]
 	fx = rot @ (np.array([x, y]))
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
@@ -78,29 +78,37 @@ def motion_model(xTrue, u):
 	r = u[0]/u[1]
 	g = np.array(
 		[
-			#xTrue[0]+u[0]*np.math.cos(xTrue[2])*dt,
-			#xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
-			xTrue[0]-r*math.sin(xTrue[2])+r*math.sin(xTrue[2]+u[1]*dt),
-			xTrue[1]+r*math.cos(xTrue[2])-r*math.cos(xTrue[2]+u[1]*dt),
-			math.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
+			#xTrue[0]+u[0]*np.np.cos(xTrue[2])*dt,
+			#xTrue[1]+u[0]*np.np.sin(xTrue[2])*dt,
+			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt),
+			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt),
+			np.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
 			u[0],
 			u[1]
-		], dtype=object
+		]
 	)
 	return g
 
 def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
-	#G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
-	#G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
-	d1dv = (1/u[1])*(math.sin(x[2])+math.sin(x[2]+u[1]*dt))
-	d1dw = -(u[0]/(u[1]**2))*(math.sin(x[2])+math.sin(x[2]+u[1]*dt))+r*dt*math.cos(x[2]+u[1]*dt)
+	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
+	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
+	d1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
+	d1dw = -(u[0]/(u[1]**2))*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))+r*dt*np.cos(x[2]+u[1]*dt)
+	d1dth = -r*np.cos(x[2])+r*np.cos(x[2]+u[1]*dt)
+	d1dv=np.squeeze(d1dv)[()]
+	d1dw=np.squeeze(d1dw)[()]
+	d1dth=np.squeeze(d1dth)[()]
 
-	d2dv = (math.cos(x[2])-math.cos(x[2]+u[1]*dt))/u[1]
-	d2dw = -u[0]/(u[1]**2)*(math.cos(x[2])-math.cos(x[2]+u[1]*dt)) - r*dt*math.cos(x[2]+u[1]*dt)
-	G1=np.array([1.0, 0.0, -r*math.cos(x[2])+r*math.cos(x[2]+u[1]*dt), d1dv, d1dw],dtype=object)
-	G2=np.array([0.0, 1.0, -r*math.sin(x[2])+r*math.sin(x[2]+u[1]*dt), d2dv, d2dw],dtype=object)
-	G3=np.array([0.0, 0.0,1.0, 0.0, dt],dtype=object)
+	d2dv = (np.cos(x[2])-np.cos(x[2]+u[1]*dt))/u[1]
+	d2dw = -u[0]/(u[1]**2)*(np.cos(x[2])-np.cos(x[2]+u[1]*dt)) - r*dt*np.cos(x[2]+u[1]*dt)
+	d2dth = -r*np.sin(x[2])+r*np.sin(x[2]+u[1]*dt)
+	d2dv=np.squeeze(d2dv)[()]
+	d2dw=np.squeeze(d2dw)[()]
+	d2dth=np.squeeze(d2dth)[()]
+	G1=np.array([1.0, 0.0, d1dth, d1dv, d1dw])
+	G2=np.array([0.0, 1.0, d2dth, d2dv, d2dw])
+	G3=np.array([0.0, 0.0,1.0, 0.0, dt])
 	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
 	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
 	G = np.vstack([G1,G2,G3, G4, G5])
@@ -110,32 +118,36 @@ def jacob_g(x, u):
 def jacob_h(x, m):
 	deltaX = m[0] - x[0]
 	deltaY = m[1] - x[1]
+	deltaX = deltaX[0]
+	deltaY = deltaY[0]
 	q = deltaX**2 + deltaY**2
-	sqrtq = math.sqrt(q)
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0, 0, 0],dtype=object)
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0, 0],dtype=object)
-	H3 = np.array([0, 0, 0, 0, 0],dtype=object)
-	H4 = np.zeros((1,5))
-	H5 = np.zeros((1,5))
+	sqrtq = np.sqrt(q)
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0, 0, 0])
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0, 0])
+	H3 = np.array([0, 0, 0, 0, 0])
+	H4=np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+	H5=np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 	H = np.vstack([H1,H2,H3,H4,H5])
 	
 	return H
 	
 def make_map(r, N): 
+	r=float(r)
 	noisy_r = r + np.random.randn()
 	
-	theta = np.pi*2*np.random.randn(1)
-	x = noisy_r*math.cos(theta) 
-	y = noisy_r*math.sin(theta) + r 
-	m = np.array([x, y, 0])
+	theta = np.pi*2*np.random.randn()
+	x = noisy_r*np.cos(theta) 
+	y = noisy_r*np.sin(theta) + r 
+	m = np.array([x, y, 0.0])
 
 	for i in range(1,N):
-		theta = np.pi*np.random.randn(1)
+		theta = np.pi*np.random.randn()
 		noisy_r = r + np.random.randn()
-		x = noisy_r*math.cos(theta) 
-		y = noisy_r*math.sin(theta) +r
-		id = i
-		m = np.vstack([m,np.array([x,y, i])])
+		x = noisy_r*np.cos(theta) 
+		y = noisy_r*np.sin(theta) + r
+		id = float(i)
+		landmark = np.array([x,y, id])
+		m = np.vstack([m,landmark])
 	return m
 def find_map_around_robot(xTrue, m, radius):
 	zs = None
@@ -161,13 +173,13 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 5), dtype=object)
+	output = np.zeros((len(zs), 5))
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
 		q = deltaX**2+deltaY**2
-		output[i, 0] = math.sqrt(q)
-		output[i, 1] = math.atan2(deltaY, deltaX)-x[2]
+		output[i, 0] = np.sqrt(q)
+		output[i, 1] = np.arctan2(deltaY, deltaX)-x[2]
 		output[i, 2] = z[2]
 	return output
 
@@ -193,11 +205,11 @@ def measurement_update(x, PPred, zs, m, mapper):
 		q = deltaX**2 + deltaY**2 
 
 		# squared root of $q$
-		sqrtq = math.sqrt(q)
+		sqrtq = np.sqrt(q)
 
 		# \hat{z}
 		hat_z[0, k] = sqrtq
-		hat_z[1, k] = math.atan2(deltaY, deltaX)-x[2]
+		hat_z[1, k] = np.arctan2(deltaY, deltaX)-x[2]
 		hat_z[2, k] = landmark[2]
 
 		# $H$
@@ -215,10 +227,10 @@ def measurement_update(x, PPred, zs, m, mapper):
 		mapper.append(j)
 
 		# Last step
-		invPsi = np.linalg.inv(Psi[j,:,:].astype(float))
-		K = (PEst@Hs[j,:,:].T@invPsi).astype(float)
-		residual = (z-hat_z[:,j]).astype(float)
-		xEst += (K@residual).astype(float)
+		invPsi = np.linalg.inv(Psi[j,:,:])
+		K = (PEst@Hs[j,:,:].T@invPsi)
+		residual = (z-hat_z[:,j])
+		xEst += (K@residual).reshape(5,1)
 		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
 
 
@@ -257,7 +269,7 @@ def main():
 	hxPred = xEst
 	hPxcoord = PEst[0,0]
 	hPycoord = PEst[1,1]
-	m=make_map(10, 150)
+	m=make_map(10.0, 150)
 	hz = None
 	
 	while SIM_TIME >= time:
@@ -266,11 +278,8 @@ def main():
 		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m, SWITCH=NOISE)
 
 		zdfs = convert_z2feature(xTrue, zds) # position to feature
-		print(xEst)
 		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
 		#TODO: 어디서부터인가 element가 array로 계산 된다..
-		print(xEst.reshape(5,1))
-		sys.exit()
 
 
 		### belows are Just plotting code
