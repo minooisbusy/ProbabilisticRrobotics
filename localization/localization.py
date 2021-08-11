@@ -22,8 +22,8 @@ V_NOISE = 1.2
 W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
-R = np.diag([V_NOISE, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-Q = np.diag([30, 30, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+Q = np.diag([30, 30, 1e16, 1e16, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
@@ -82,8 +82,10 @@ def motion_model(xTrue, u):
 			#xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
 			xTrue[0]-r*math.sin(xTrue[2])+r*math.sin(xTrue[2]+u[1]*dt),
 			xTrue[1]+r*math.cos(xTrue[2])-r*math.cos(xTrue[2]+u[1]*dt),
-			xTrue[2]+u[1]*dt
-		]
+			math.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
+			u[0],
+			u[1]
+		], dtype=object
 	)
 	return g
 
@@ -91,10 +93,17 @@ def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
 	#G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
 	#G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
-	G1=np.array([1.0, 0.0, -r*math.cos(x[2])+r*math.cos(x[2]+u[1]*dt)],dtype=object)
-	G2=np.array([0.0, 1.0, -r*math.sin(x[2])+r*math.sin(x[2]+u[1]*dt)],dtype=object)
-	G3=np.array([0.0,0.0,1.0],dtype=object)
-	G = np.vstack([G1,G2,G3])
+	d1dv = (1/u[1])*(math.sin(x[2])+math.sin(x[2]+u[1]*dt))
+	d1dw = -(u[0]/(u[1]**2))*(math.sin(x[2])+math.sin(x[2]+u[1]*dt))+r*dt*math.cos(x[2]+u[1]*dt)
+
+	d2dv = (math.cos(x[2])-math.cos(x[2]+u[1]*dt))/u[1]
+	d2dw = -u[0]/(u[1]**2)*(math.cos(x[2])-math.cos(x[2]+u[1]*dt)) - r*dt*math.cos(x[2]+u[1]*dt)
+	G1=np.array([1.0, 0.0, -r*math.cos(x[2])+r*math.cos(x[2]+u[1]*dt), d1dv, d1dw],dtype=object)
+	G2=np.array([0.0, 1.0, -r*math.sin(x[2])+r*math.sin(x[2]+u[1]*dt), d2dv, d2dw],dtype=object)
+	G3=np.array([0.0, 0.0,1.0, 0.0, dt],dtype=object)
+	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
+	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
+	G = np.vstack([G1,G2,G3, G4, G5])
 	return G
 
 
@@ -103,10 +112,12 @@ def jacob_h(x, m):
 	deltaY = m[1] - x[1]
 	q = deltaX**2 + deltaY**2
 	sqrtq = math.sqrt(q)
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0],dtype=object)
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0],dtype=object)
-	H3 = np.array([0, 0, 0],dtype=object)
-	H = np.vstack([H1,H2,H3])
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0, 0, 0],dtype=object)
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0, 0],dtype=object)
+	H3 = np.array([0, 0, 0, 0, 0],dtype=object)
+	H4 = np.zeros((1,5))
+	H5 = np.zeros((1,5))
+	H = np.vstack([H1,H2,H3,H4,H5])
 	
 	return H
 	
@@ -150,7 +161,7 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 3), dtype=object)
+	output = np.zeros((len(zs), 5), dtype=object)
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
@@ -169,9 +180,9 @@ def motion_update(x, u, P):
 
 def measurement_update(x, PPred, zs, m, mapper):
 	N=len(m)
-	hat_z = np.zeros((3, N))
-	Hs = np.zeros((N,3,3))
-	Psi = np.zeros((N,3,3))
+	hat_z = np.zeros((5, N))
+	Hs = np.zeros((N,5,5))
+	Psi = np.zeros((N,5,5))
 	for k, landmark in enumerate(m):
 
 		# $delta$
@@ -190,10 +201,10 @@ def measurement_update(x, PPred, zs, m, mapper):
 		hat_z[2, k] = landmark[2]
 
 		# $H$
-		Hs[k,:3,:3]=jacob_h(x, landmark)
+		Hs[k,:,:]=jacob_h(x, landmark)
 
 		# $\Psi$
-		Psi[k,:3,:3] =(Hs[k,:3,:3]@PPred@Hs[k,:3,:3].T +Q).astype(float)
+		Psi[k,:,:] =(Hs[k,:,:]@PPred@Hs[k,:,:].T + Q).astype(float)
 	
 	xEst = x
 	PEst = PPred.copy()
@@ -206,8 +217,8 @@ def measurement_update(x, PPred, zs, m, mapper):
 		# Last step
 		invPsi = np.linalg.inv(Psi[j,:,:].astype(float))
 		K = (PEst@Hs[j,:,:].T@invPsi).astype(float)
-		residual = (z-hat_z[:,j]).reshape(3,1)
-		xEst += K@residual.astype(float)
+		residual = (z-hat_z[:,j]).astype(float)
+		xEst += (K@residual).astype(float)
 		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
 
 
@@ -232,11 +243,11 @@ show_animation = True
 def main():
 	# Initialize variables
 	# states
-	xEst = np.zeros((3,1)) # estimated state mean
-	PEst = 0.003*np.eye(3) # Estimated state covariance
+	xEst = np.zeros((5,1)) # estimated state mean
+	PEst = 0.003*np.eye(5) # Estimated state covariance
 
-	xTrue = np.zeros((3,1)) # true state
-	xDR = np.zeros((3,1)) # Dead Reckoning: initial state evolution with noisy input
+	xTrue = np.zeros((5,1)) # true state
+	xDR = np.zeros((5,1)) # Dead Reckoning: initial state evolution with noisy input
 	time = 0.0
 
 	# Generate states (True, Deadreckoning, Map)
@@ -255,7 +266,11 @@ def main():
 		xTrue, zs, zds, xDR, ud = observation(xTrue,xDR, u, m, SWITCH=NOISE)
 
 		zdfs = convert_z2feature(xTrue, zds) # position to feature
+		print(xEst)
 		xEst, PEst, mapper = ekf_estimation(xEst, PEst, zdfs, ud, m, zs)
+		#TODO: 어디서부터인가 element가 array로 계산 된다..
+		print(xEst.reshape(5,1))
+		sys.exit()
 
 
 		### belows are Just plotting code
