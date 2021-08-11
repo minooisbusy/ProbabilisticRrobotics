@@ -22,12 +22,12 @@ W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-R = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])**2  	  # motion model uncertainty diag(x, y, theta)
-Q = np.diag([10, 10, 1e16, 1e16, 1e16])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+Q = np.diag([30, 30, 1e16, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
-KNOWN =  False
+KNOWN =  True
 # Observation noise switch, True = measurements are noisy
 NOISE = True 
 
@@ -83,8 +83,7 @@ def motion_model(xTrue, u):
 			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt),
 			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt),
 			np.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
-			u[0],
-			u[1]
+			u[0]
 		]
 	)
 	return g
@@ -93,25 +92,20 @@ def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
 	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
 	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
-	d1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
-	d1dw = -(u[0]/(u[1]**2))*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))+r*dt*np.cos(x[2]+u[1]*dt)
 	d1dth = -r*np.cos(x[2])+r*np.cos(x[2]+u[1]*dt)
-	d1dv=np.squeeze(d1dv)[()]
-	d1dw=np.squeeze(d1dw)[()]
+	d1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
 	d1dth=np.squeeze(d1dth)[()]
+	d1dv=np.squeeze(d1dv)[()]
 
 	d2dv = (np.cos(x[2])-np.cos(x[2]+u[1]*dt))/u[1]
-	d2dw = -u[0]/(u[1]**2)*(np.cos(x[2])-np.cos(x[2]+u[1]*dt)) - r*dt*np.cos(x[2]+u[1]*dt)
 	d2dth = -r*np.sin(x[2])+r*np.sin(x[2]+u[1]*dt)
 	d2dv=np.squeeze(d2dv)[()]
-	d2dw=np.squeeze(d2dw)[()]
 	d2dth=np.squeeze(d2dth)[()]
-	G1=np.array([1.0, 0.0, d1dth, d1dv, d1dw])
-	G2=np.array([0.0, 1.0, d2dth, d2dv, d2dw])
-	G3=np.array([0.0, 0.0,1.0, 0.0, dt])
-	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
-	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
-	G = np.vstack([G1,G2,G3, G4, G5])
+	G1=np.array([1.0, 0.0, d1dth, d1dv])
+	G2=np.array([0.0, 1.0, d2dth, d2dv])
+	G3=np.array([0.0, 0.0,1.0, 0.0])
+	G4=np.array([0.0, 0.0, 0.0, 1.0])
+	G = np.vstack([G1,G2,G3, G4])
 	return G
 
 
@@ -122,12 +116,11 @@ def jacob_h(x, m):
 	deltaY = deltaY[0]
 	q = deltaX**2 + deltaY**2
 	sqrtq = np.sqrt(q)
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0, 0, 0])
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0, 0])
-	H3 = np.array([0, 0, 0, 0, 0])
-	H4=np.array([0.0, 0.0, 0.0, 0.0, 0.0])
-	H5=np.array([0.0, 0.0, 0.0, 0.0, 0.0])
-	H = np.vstack([H1,H2,H3,H4,H5])
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0])
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0])
+	H3 = np.array([0.0, 0.0, 0.0, 0.0])
+	H4 = np.array([0.0, 0.0, 0.0, 0.0])
+	H = np.vstack([H1,H2,H3,H4])
 	
 	return H
 	
@@ -173,7 +166,7 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 5))
+	output = np.zeros((len(zs), 4))
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
@@ -192,9 +185,9 @@ def motion_update(x, u, P):
 
 def measurement_update(x, PPred, zs, m, mapper):
 	N=len(m)
-	hat_z = np.zeros((5, N))
-	Hs = np.zeros((N,5,5))
-	Psi = np.zeros((N,5,5))
+	hat_z = np.zeros((4, N))
+	Hs = np.zeros((N,4,4))
+	Psi = np.zeros((N,4,4))
 	for k, landmark in enumerate(m):
 
 		# $delta$
@@ -230,7 +223,8 @@ def measurement_update(x, PPred, zs, m, mapper):
 		invPsi = np.linalg.inv(Psi[j,:,:])
 		K = (PEst@Hs[j,:,:].T@invPsi)
 		residual = (z-hat_z[:,j])
-		xEst += (K@residual).reshape(5,1)
+		incremental = (K@residual).reshape(4,1)
+		xEst += incremental
 		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
 
 
@@ -255,11 +249,11 @@ show_animation = True
 def main():
 	# Initialize variables
 	# states
-	xEst = np.zeros((5,1)) # estimated state mean
-	PEst = 0.003*np.eye(5) # Estimated state covariance
+	xEst = np.zeros((4,1)) # estimated state mean
+	PEst = 0.003*np.eye(4) # Estimated state covariance
 
-	xTrue = np.zeros((5,1)) # true state
-	xDR = np.zeros((5,1)) # Dead Reckoning: initial state evolution with noisy input
+	xTrue = np.zeros((4,1)) # true state
+	xDR = np.zeros((4,1)) # Dead Reckoning: initial state evolution with noisy input
 	time = 0.0
 
 	# Generate states (True, Deadreckoning, Map)
@@ -269,6 +263,7 @@ def main():
 	hxPred = xEst
 	hPxcoord = PEst[0,0]
 	hPycoord = PEst[1,1]
+	hPvel = PEst[2,2] 
 	m=make_map(10.0, 150)
 	hz = None
 	
@@ -288,11 +283,12 @@ def main():
 		hxEst = np.hstack((hxEst, xEst))
 		hPxcoord = np.hstack((hPxcoord, PEst[0,0]))
 		hPycoord = np.hstack((hPycoord, PEst[1,1]))
+		hPvel = np.hstack((hPvel, PEst[2,2]))
 
 		
 
 		if show_animation:
-			plt.subplot(1,3,1)
+			plt.subplot(1,4,1)
 			plt.cla()
 			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
 			# Map
@@ -336,14 +332,17 @@ def main():
 #					plt.plot([z[0],m[j][0]],
 #						[z[1], m[j][1]], "-g")
 			plt.legend()
-			plt.subplot(1,3,2)
+			plt.subplot(1,4,2)
 			plt.title('x-coord variance')
 			#plt.ylim(0,0.3)
 			plt.plot(hPxcoord,color="k")
-			plt.subplot(1,3,3)
+			plt.subplot(1,4,3)
 			plt.title('y-coord variance')
 			#plt.ylim(0,0.3)
 			plt.plot(hPycoord,color="k")
+			plt.subplot(1,4,4)
+			plt.title('velocity variance, {}'.format(xEst[3]))
+			plt.plot(hPvel,color="k")
 			plt.pause(0.001)
 			key = None
 			while key =='c':
