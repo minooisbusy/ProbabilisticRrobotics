@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation as Rot
 # Global variables
 dt = 0.1 # time intervals
 N = 200 # number of states
+NSTATE = 5 # # of state variable
 
 # Noise parameters
 V_NOISE = 1.2
@@ -25,16 +26,16 @@ W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-R = np.diag([V_NOISE, V_NOISE, W_NOISE, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 Q = np.diag([30, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
-KNOWN =  True
+KNOWN = True
 # Observation noise switch, True = measurements are noisy
-NOISE = False
+NOISE = True
 
-def plot_covariance_ellipse(xEst, PEst, label):
+def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
 	eigval, eigvec = np.linalg.eig(Pxy)
@@ -56,12 +57,13 @@ def plot_covariance_ellipse(xEst, PEst, label):
 	fx = rot @ (np.array([x, y]))
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
 	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
-	plt.plot(px, py, "--r",label=label)
+	#ax.plot(px, py, "--r",label=label)
+	return px, py
 
 def calc_input():
 	v = 1.0
 	yaw_rate = 0.1
-	u = np.array([[v, yaw_rate]]).T # 2x1
+	u = np.array([[v, yaw_rate]]).T # 2x1 return u
 	return u
 
 def observation(xTrue, xd, u, m, SWITCH): # This method is not a observation model h(x)
@@ -93,8 +95,8 @@ def motion_model(xTrue, u):
 			x-r*np.sin(yaw)+r*np.sin(yaw+w*dt), #g1
 			y+r*np.cos(yaw)-r*np.cos(yaw+w*dt), #g2
 			np.remainder(yaw+w*dt, 2*np.pi),
-			#xTrue[2]+u[1]*dt,
-			v
+			v,
+			w
 		]
 	)
 	return g
@@ -107,19 +109,24 @@ def jacob_g(x, u):
 	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
 	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
 	df1dth = r*dt*(-np.cos(yaw)+np.cos(yaw+w*dt))
-	df1dv = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
+	df1dv  = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
+	df1dw  = r*((np.sin(yaw)-np.sin(yaw+w*dt))/w + np.cos(yaw+w*dt)*dt)
 	df1dth=np.squeeze(df1dth)[()]
 	df1dv=np.squeeze(df1dv)[()]
+	df1dw=np.squeeze(df1dw)[()]
 
 	df2dth = r*(-np.sin(yaw)+np.sin(yaw+w*dt))
-	df2dv =    (np.cos(yaw)-np.cos(yaw+w*dt))/w
+	df2dv  =   (np.cos(yaw)-np.cos(yaw+w*dt))/w
+	df2dw  = r*(-(np.cos(yaw)-np.cos(yaw+w*dt))/w + np.sin(yaw+w*dt)*dt)
 	df2dth=np.squeeze(df2dth)[()]
 	df2dv=np.squeeze(df2dv)[()]
-	G1=np.array([1.0, 0.0, df1dth, df1dv])
-	G2=np.array([0.0, 1.0, df2dth, df2dv])
-	G3=np.array([0.0, 0.0,1.0, 0.0])
-	G4=np.array([0.0, 0.0, 0.0, 1.0])
-	G = np.vstack([G1,G2,G3, G4])
+	df2dw=np.squeeze(df2dw)[()]
+	G1=np.array([1.0, 0.0, df1dth, df1dv, df1dw])
+	G2=np.array([0.0, 1.0, df2dth, df2dv, df2dw])
+	G3=np.array([0.0, 0.0, 1.0, 0.0, 0.0])
+	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
+	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
+	G = np.vstack([G1,G2,G3, G4, G5])
 	return G
 
 
@@ -130,8 +137,11 @@ def jacob_h(x, m):
 	deltaY = deltaY[0]
 	q = deltaX**2 + deltaY**2
 	sqrtq = np.sqrt(q)
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0])
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0])
+	dxdv = (x[0]/x[3])
+	dydv = (x[1]/x[3])
+	H14= -(2*deltaX*dxdv + 2*deltaY*dydv)/sqrtq
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0, 0.0])
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0, -dt])
 	H = np.vstack([H1,H2])
 	
 	return H
@@ -197,8 +207,8 @@ def motion_update(x, u, P):
 
 def measurement_update(x, PPred, zs, m, mapper):
 	N=len(m)
-	hat_z = np.zeros((4, N))
-	Hs = np.zeros((N,2,4))
+	hat_z = np.zeros((NSTATE, N))
+	Hs = np.zeros((N,2,NSTATE))
 	Psi = np.zeros((N,2,2))
 	for k, landmark in enumerate(m):
 
@@ -261,12 +271,16 @@ show_animation = True
 def main():
 	# Initialize variables
 	# states
-	xEst = np.zeros((4,1)) # estimated state mean
+	xEst = np.zeros((NSTATE,1)) # estimated state mean
 	#PEst = 1e-16*np.eye(4) # Estimated state covariance
-	PEst = np.diag([30,30, 5,30])# Estimated state covariance
+	PEst = None
+	if NSTATE == 5:
+		PEst = np.diag([30,30, 5,30, 30])# Estimated state covariance
+	elif NSTATE == 4:
+		PEst = np.diag([30,30, 5,30])# Estimated state covariance
 
-	xTrue = np.zeros((4,1)) # true state
-	xDR = np.zeros((4,1)) # Dead Reckoning: initial state evolution with noisy input
+	xTrue = np.zeros((NSTATE,1)) # true state
+	xDR = np.zeros((NSTATE,1)) # Dead Reckoning: initial state evolution with noisy input
 	time = 0.0
 
 	# Generate states (True, Deadreckoning, Map)
@@ -280,6 +294,8 @@ def main():
 	m=make_map(10.0, 150)
 	hz = None
 	
+	fig, axes = plt.subplots(nrows=2,ncols=2)
+	plt.title('Corr.:{}, Measure. Noise{}'.format(KNOWN,NOISE))
 	while SIM_TIME >= time:
 		time += dt
 		u = calc_input() # linear and angular velocity
@@ -301,68 +317,71 @@ def main():
 		
 
 		if show_animation:
-			plt.subplot(1,4,1)
-			plt.cla()
-			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
+			
+			for i in range(2):
+				for j in range(2):
+					axes[i][j].cla()
+			#fig.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
 			# Map
-			plt.plot(m[:, 0],
+			axes[0][0].plot(m[:, 0],
 					 m[:, 1],".k")
 			# Observed Real landmark position
 			if len(zs) != 0:
 #				plt.plot(zs[:, 0].flatten(),
 #						zs[:, 1].flatten(), "+g")
 			# Observed Noisy landmakr position
-				plt.plot(zds[:, 0].flatten(),
+				axes[0][0].plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xy", label="Noisy observations")
 			# True pose trajectory
-			plt.plot(hxTrue[0, :].flatten(),
+			axes[0][0].plot(hxTrue[0, :].flatten(),
 					 hxTrue[1, :].flatten(), "--",color="blue", label="True trajectory")
-			plt.plot(hxTrue[0,-1],
+			axes[0][0].plot(hxTrue[0,-1],
 					 hxTrue[1,-1], ".b", label="Current true position")
 			# Dead Reckoning position trajectory
-			plt.plot(hxDR[0, :].flatten(),
+			axes[0][0].plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
-			plt.plot(hxDR[0,-1],
+			axes[0][0].plot(hxDR[0,-1],
 					 hxDR[1,-1], ".k", label="Current DR position")
 
 			# Estimated pose trajectory
-			plt.plot(hxEst[0, :].flatten(),
+			axes[0][0].plot(hxEst[0, :].flatten(),
 					 hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
-			plt.plot(hxEst[0,-1],
+			axes[0][0].plot(hxEst[0,-1],
 					 hxEst[1,-1], ".",color="lime", label="Current Est position")
 
 
-			plt.axis("equal")
-			plt.xlim(-20,20)
-			plt.ylim(-5,25)
-			plt.grid(True)
-			plt.title('Simulation plot')
-			plot_covariance_ellipse(xEst,PEst, label='State covariance')
+			axes[0][0].set_aspect("equal")
+			axes[0][0].set_xlim(-20,20)
+			axes[0][0].set_ylim(-5,25)
+			axes[0][0].grid(True)
+			axes[0][0].set_title('Simulation plot')
+			px, py = plot_covariance_ellipse(xEst,PEst)
+			axes[0][0].plot(px, py, "--r",label='State covariance')
 			# correspondences, red: outlier
-#			for i, z in enumerate(zds[:,:]):
-#				j = mapper[i]
-#				if  j < 0:
-#					j = abs(j)
-#					plt.plot([z[0],m[j][0]],
-#						[z[1], m[j][1]], "-r")
-#				else:
-#					plt.plot([z[0],m[j][0]],
-#						[z[1], m[j][1]], "-g")
-			plt.legend()
-			plt.subplot(1,4,2)
-			plt.title('x-coord variance')
+			for i, z in enumerate(zds[:,:]):
+				j = mapper[i]
+				if  j < 0:
+					j = abs(j)
+					axes[0][0].plot([z[0],m[j][0]],
+						[z[1], m[j][1]], "-r")
+				else:
+					axes[0][0].plot([z[0],m[j][0]],
+						[z[1], m[j][1]], "-g")
+			#axes[0][0].legend()
+			axes[0][1].set_title('x-coord variance')
 			#plt.ylim(0,0.3)
-			plt.plot(hPxcoord,color="k")
-			plt.grid(True)
-			plt.subplot(1,4,3)
-			plt.title('y-coord variance')
-			#plt.ylim(0,0.3)
-			plt.plot(hPycoord,color="k")
-			plt.grid(True)
-			plt.subplot(1,4,4)
-			plt.title('velocity variance, {}'.format(xEst[3]))
-			plt.plot(hPvel,color="k")
-			plt.grid(True)
+			axes[0][1].plot(hPxcoord,color="k")
+			axes[0][1].grid(True)
+			axes[1][0].set_title('y-coord variance')
+			axes[1][0].plot(hPycoord,color="k")
+			axes[1][0].grid(True)
+			#plt.title('velocity variance, {}'.format(xEst[3]))
+			#plt.plot(hPvel,color="k")
+			#plt.grid(True)
+			#plt.title('matrix color')
+			axes[1][1].matshow(PEst, cmap=plt.cm.Blues)
+			for (i, j), z in np.ndenumerate(PEst):
+				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
 			plt.pause(0.001)
 			key = None
 			while key =='c':
