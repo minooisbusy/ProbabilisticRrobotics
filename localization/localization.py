@@ -26,7 +26,7 @@ R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 R = np.diag([V_NOISE, V_NOISE, W_NOISE, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-Q = np.diag([30, 30, 1e-16, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
+Q = np.diag([30, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
@@ -122,9 +122,7 @@ def jacob_h(x, m):
 	sqrtq = np.sqrt(q)
 	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0])
 	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0])
-	H3 = np.array([0.0, 0.0, 0.0, 0.0])
-	H4 = np.array([0.0, 0.0, 0.0, 0.0])
-	H = np.vstack([H1,H2,H3,H4])
+	H = np.vstack([H1,H2])
 	
 	return H
 	
@@ -190,8 +188,8 @@ def motion_update(x, u, P):
 def measurement_update(x, PPred, zs, m, mapper):
 	N=len(m)
 	hat_z = np.zeros((4, N))
-	Hs = np.zeros((N,4,4))
-	Psi = np.zeros((N,4,4))
+	Hs = np.zeros((N,2,4))
+	Psi = np.zeros((N,2,2))
 	for k, landmark in enumerate(m):
 
 		# $delta$
@@ -226,7 +224,7 @@ def measurement_update(x, PPred, zs, m, mapper):
 		# Last step
 		invPsi = np.linalg.inv(Psi[j,:,:])
 		K = (PEst@Hs[j,:,:].T@invPsi)
-		residual = (z-hat_z[:,j]).reshape(4,1)
+		residual = (z[:2]-hat_z[:2,j]).reshape(2,1)
 		incremental = (K@residual)
 		xEst += incremental
 		PEst = ((np.eye(len(xEst))-K@Hs[j,:,:]))@PEst
@@ -238,7 +236,7 @@ def match_features(z, hat_z, invPsi, known=False):
 	N = len(hat_z[0,:]) # number of Landmark (size of map)
 	distance = np.zeros(N)
 	for k in range(N): # 1:N search which can cause multi-mapping
-		dx = z-hat_z[:,k]
+		dx = z[:2]-hat_z[:2,k]
 		distance[k] = (dx@invPsi@dx.T)/(np.linalg.det(2*np.pi*invPsi)) # exponential and squared root are monotonically increase, so i peel of these guys.
 	j = np.argmin(distance)
 	if (z[2] != hat_z[2,j]) and KNOWN:
