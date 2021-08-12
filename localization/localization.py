@@ -78,33 +78,43 @@ def observation(xTrue, xd, u, m, SWITCH): # This method is not a observation mod
 	return xTrue, zs, zds, xDR, ud
 
 def motion_model(xTrue, u):
-	r = u[0]/u[1]
+	# control
+	v = u[0]
+	w = u[1]
+	r = v/w
+	# state
+	x = xTrue[0]
+	y = xTrue[1]
+	yaw = xTrue[2]
 	g = np.array(
 		[
 			#xTrue[0]+u[0]*np.np.cos(xTrue[2])*dt,
 			#xTrue[1]+u[0]*np.np.sin(xTrue[2])*dt,
-			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt), #g1
-			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt), #g2
-			#np.remainder(xTrue[2]+u[1]*dt, 2*np.pi),
-			xTrue[2]+u[1]*dt,
-			u[0]
+			x-r*np.sin(yaw)+r*np.sin(yaw+w*dt), #g1
+			y+r*np.cos(yaw)-r*np.cos(yaw+w*dt), #g2
+			np.remainder(yaw+w*dt, 2*np.pi),
+			#xTrue[2]+u[1]*dt,
+			v
 		]
 	)
 	return g
 
 def jacob_g(x, u):
-	r = u[0]/u[1] # r=v/{\omega}
+	v = u[0]
+	w = u[1]
+	yaw = x[2]
+	r = v/w
 	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
 	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
-	df1dth = -r*np.cos(x[2])+r*np.cos(x[2]+u[1]*dt)
-	df1dv = (1/u[1])*(np.sin(x[2])+np.sin(x[2]+u[1]*dt))
+	df1dth = r*dt*(-np.cos(yaw)+np.cos(yaw+w*dt))
+	df1dv = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
 	df1dth=np.squeeze(df1dth)[()]
 	df1dv=np.squeeze(df1dv)[()]
 
-	df2dv = (np.cos(x[2])-np.cos(x[2]+u[1]*dt))/u[1]
-	df2dth = -r*np.sin(x[2])+r*np.sin(x[2]+u[1]*dt)
-	df2dv=np.squeeze(df2dv)[()]
+	df2dth = r*(-np.sin(yaw)+np.sin(yaw+w*dt))
+	df2dv =    (np.cos(yaw)-np.cos(yaw+w*dt))/w
 	df2dth=np.squeeze(df2dth)[()]
+	df2dv=np.squeeze(df2dv)[()]
 	G1=np.array([1.0, 0.0, df1dth, df1dv])
 	G2=np.array([0.0, 1.0, df2dth, df2dv])
 	G3=np.array([0.0, 0.0,1.0, 0.0])
@@ -252,7 +262,8 @@ def main():
 	# Initialize variables
 	# states
 	xEst = np.zeros((4,1)) # estimated state mean
-	PEst = 1e-16*np.eye(4) # Estimated state covariance
+	#PEst = 1e-16*np.eye(4) # Estimated state covariance
+	PEst = np.diag([30,30, 5,30])# Estimated state covariance
 
 	xTrue = np.zeros((4,1)) # true state
 	xDR = np.zeros((4,1)) # Dead Reckoning: initial state evolution with noisy input
@@ -265,7 +276,7 @@ def main():
 	hxPred = xEst
 	hPxcoord = PEst[0,0]
 	hPycoord = PEst[1,1]
-	hPvel = PEst[2,2] 
+	hPvel = PEst[3,3] 
 	m=make_map(10.0, 150)
 	hz = None
 	
@@ -285,7 +296,7 @@ def main():
 		hxEst = np.hstack((hxEst, xEst))
 		hPxcoord = np.hstack((hPxcoord, PEst[0,0]))
 		hPycoord = np.hstack((hPycoord, PEst[1,1]))
-		hPvel = np.hstack((hPvel, PEst[2,2]))
+		hPvel = np.hstack((hPvel, PEst[3,3]))
 
 		
 
@@ -311,10 +322,14 @@ def main():
 			# Dead Reckoning position trajectory
 			plt.plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
+			plt.plot(hxDR[0,-1],
+					 hxDR[1,-1], ".k", label="Current DR position")
 
 			# Estimated pose trajectory
 			plt.plot(hxEst[0, :].flatten(),
 					 hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
+			plt.plot(hxEst[0,-1],
+					 hxEst[1,-1], ".",color="lime", label="Current Est position")
 
 
 			plt.axis("equal")
@@ -338,13 +353,16 @@ def main():
 			plt.title('x-coord variance')
 			#plt.ylim(0,0.3)
 			plt.plot(hPxcoord,color="k")
+			plt.grid(True)
 			plt.subplot(1,4,3)
 			plt.title('y-coord variance')
 			#plt.ylim(0,0.3)
 			plt.plot(hPycoord,color="k")
+			plt.grid(True)
 			plt.subplot(1,4,4)
 			plt.title('velocity variance, {}'.format(xEst[3]))
 			plt.plot(hPvel,color="k")
+			plt.grid(True)
 			plt.pause(0.001)
 			key = None
 			while key =='c':
