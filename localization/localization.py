@@ -33,7 +33,7 @@ INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 # Known correspondences switch, True = Known correspondences
 KNOWN = True
 # Observation noise switch, True = measurements are noisy
-NOISE = True
+NOISE = False
 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
@@ -90,10 +90,10 @@ def motion_model(xTrue, u):
 	yaw = xTrue[2]
 	g = np.array(
 		[
-			#xTrue[0]+u[0]*np.np.cos(xTrue[2])*dt,
-			#xTrue[1]+u[0]*np.np.sin(xTrue[2])*dt,
-			x-r*np.sin(yaw)+r*np.sin(yaw+w*dt), #g1
-			y+r*np.cos(yaw)-r*np.cos(yaw+w*dt), #g2
+			x+u[0]*np.cos(yaw+w*dt)*dt,
+			y+u[0]*np.sin(yaw+w*dt)*dt,
+			#x-r*np.sin(yaw)+r*np.sin(yaw+w*dt), #g1
+			#y+r*np.cos(yaw)-r*np.cos(yaw+w*dt), #g2
 			np.remainder(yaw+w*dt, 2*np.pi),
 			v,
 			w
@@ -102,27 +102,27 @@ def motion_model(xTrue, u):
 	return g
 
 def jacob_g(x, u):
-	v = u[0]
-	w = u[1]
-	yaw = x[2]
-	r = v/w
-	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])])
-	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])])
-	df1dth = r*dt*(-np.cos(yaw)+np.cos(yaw+w*dt))
-	df1dv  = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
-	df1dw  = r*((np.sin(yaw)-np.sin(yaw+w*dt))/w + np.cos(yaw+w*dt)*dt)
-	df1dth=np.squeeze(df1dth)[()]
-	df1dv=np.squeeze(df1dv)[()]
-	df1dw=np.squeeze(df1dw)[()]
+	v = np.squeeze(u[0])[()]
+	w = np.squeeze(u[1])[()]
+	yaw = np.squeeze(x[2])[()]
+	G1=np.array([1.0, 0.0, -v*dt*np.sin(yaw), np.cos(yaw)*dt, -v*np.sin(yaw)*(dt**2)])
+	G2=np.array([0.0, 1.0,  v*dt*np.cos(yaw), np.sin(yaw)*dt, v*np.cos(yaw)*(dt**2)])
+	#r = v/w
+	#df1dth = r*(-np.cos(yaw)+np.cos(yaw+w*dt))
+	#df1dv  = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
+	#df1dw  = r*((np.sin(yaw)-np.sin(yaw+w*dt))/w + np.cos(yaw+w*dt)*dt)
+	#df1dth=np.squeeze(df1dth)[()]
+	#df1dv=np.squeeze(df1dv)[()]
+	#df1dw=np.squeeze(df1dw)[()]
 
-	df2dth = r*(-np.sin(yaw)+np.sin(yaw+w*dt))
-	df2dv  =   (np.cos(yaw)-np.cos(yaw+w*dt))/w
-	df2dw  = r*(-(np.cos(yaw)-np.cos(yaw+w*dt))/w + np.sin(yaw+w*dt)*dt)
-	df2dth=np.squeeze(df2dth)[()]
-	df2dv=np.squeeze(df2dv)[()]
-	df2dw=np.squeeze(df2dw)[()]
-	G1=np.array([1.0, 0.0, df1dth, df1dv, df1dw])
-	G2=np.array([0.0, 1.0, df2dth, df2dv, df2dw])
+	#df2dth = r*(-np.sin(yaw)+np.sin(yaw+w*dt))
+	#df2dv  =   (np.cos(yaw)-np.cos(yaw+w*dt))/w
+	#df2dw  = r*(-(np.cos(yaw)-np.cos(yaw+w*dt))/w + np.sin(yaw+w*dt)*dt)
+	#df2dth=np.squeeze(df2dth)[()]
+	#df2dv=np.squeeze(df2dv)[()]
+	#df2dw=np.squeeze(df2dw)[()]
+	#G1=np.array([1.0, 0.0, df1dth, df1dv, df1dw])
+	#G2=np.array([0.0, 1.0, df2dth, df2dv, df2dw])
 	G3=np.array([0.0, 0.0, 1.0, 0.0, 0.0])
 	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
 	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
@@ -137,11 +137,24 @@ def jacob_h(x, m):
 	deltaY = deltaY[0]
 	q = deltaX**2 + deltaY**2
 	sqrtq = np.sqrt(q)
-	dxdv = (x[0]/x[3])
-	dydv = (x[1]/x[3])
-	H14= -(2*deltaX*dxdv + 2*deltaY*dydv)/sqrtq
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0, 0.0])
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0, dt])
+	
+	v = np.squeeze(x[3])[()]
+	w = np.squeeze(x[4])[()]
+	yaw = np.squeeze(x[2])[()] # yaw = yaw + w*dt
+	# _x = x + v*cos(yaw)*dt, dx = mx - _x
+	# _y = y + v*sin(yaw)*dt, dy = my - _y
+
+	H14 = -(deltaX*np.cos(yaw)*dt+deltaY*np.sin(yaw)*dt)/sqrtq
+	H15 = -(-deltaX*(v*np.sin(yaw)*(dt**2)+deltaY*v*np.cos(yaw)*(dt**2)))/sqrtq
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14, H15])
+
+	dx=deltaX
+	dy=deltaY
+	dh2dk = (dx**2)/q #dh2/dk, where k=dx+dy
+	#yaw -= w*dt
+	H24 = dh2dk*(np.sin(yaw)*dt*dx-np.cos(yaw)*dt*dy)/(dx**2)
+	H25 = dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
+	H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24, H25])
 	H = np.vstack([H1,H2])
 	
 	return H
@@ -237,7 +250,9 @@ def measurement_update(x, PPred, zs, m, mapper):
 	PEst = PPred.copy()
 	for i, z in enumerate(zs):
 		# $\argmin dx^T*\Psi_i^{-1}*dx
-		invPsi = np.linalg.inv(Psi[i,:,:])
+		invPsi = None
+		if KNOWN is False:
+			invPsi = np.linalg.inv(Psi[i,:,:])
 		j = int(match_features(z, hat_z, invPsi, known=KNOWN))
 		mapper.append(j)
 
@@ -255,11 +270,13 @@ def measurement_update(x, PPred, zs, m, mapper):
 def match_features(z, hat_z, invPsi, known=False):
 	N = len(hat_z[0,:]) # number of Landmark (size of map)
 	distance = np.zeros(N)
-	for k in range(N): # 1:N search which can cause multi-mapping
-		dx = z[:2]-hat_z[:2,k]
-		distance[k] = (dx@invPsi@dx.T)/(np.linalg.det(2*np.pi*invPsi)) # exponential and squared root are monotonically increase, so i peel of these guys.
-	j = np.argmin(distance)
-	if (z[2] != hat_z[2,j]) and KNOWN:
+	j=None
+	if KNOWN is False:
+		for k in range(N): # 1:N search which can cause multi-mapping
+			dx = z[:2]-hat_z[:2,k]
+			distance[k] = (dx@invPsi@dx.T)/(np.linalg.det(2*np.pi*invPsi)) # exponential and squared root are monotonically increase, so i peel of these guys.
+			j = np.argmin(distance)
+	if KNOWN:
 		return np.argwhere(hat_z[2,:]==z[2])
 	return j
 
@@ -341,7 +358,7 @@ def main():
 			axes[0][0].plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
 			axes[0][0].plot(hxDR[0,-1],
-					 hxDR[1,-1], ".k", label="Current DR position")
+					 hxDR[1,-1], ".r", label="Current DR position")
 
 			# Estimated pose trajectory
 			axes[0][0].plot(hxEst[0, :].flatten(),
@@ -379,15 +396,18 @@ def main():
 			#plt.plot(hPvel,color="k")
 			#plt.grid(True)
 			#plt.title('matrix color')
-			axes[1][1].matshow(PEst, cmap=plt.cm.Blues)
+			axes[1][1].matshow(np.abs(PEst), cmap=plt.cm.Blues)
 			for (i, j), z in np.ndenumerate(PEst):
 				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
-			plt.pause(0.001)
+			plt.pause(0.00001)
 			key = None
 			while key =='c':
 				key = plt.waitforbuttonpress(0)
 			if key == 'escape':
 				sys.exit()
+		
+	key = plt.waitforbuttonpress(0)
+	
 
 
 			
