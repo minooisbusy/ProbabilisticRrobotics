@@ -141,7 +141,7 @@ def jacob_h(x, m):
 	dydv = (x[1]/x[3])
 	H14= -(2*deltaX*dxdv + 2*deltaY*dydv)/sqrtq
 	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, 0.0, 0.0])
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0, -dt])
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0, 0.0, dt])
 	H = np.vstack([H1,H2])
 	
 	return H
