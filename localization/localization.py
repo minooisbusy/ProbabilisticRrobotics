@@ -33,7 +33,7 @@ INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 # Known correspondences switch, True = Known correspondences
 KNOWN = True
 # Observation noise switch, True = measurements are noisy
-NOISE = False
+NOISE = True 
 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
@@ -104,7 +104,7 @@ def motion_model(xTrue, u):
 def jacob_g(x, u):
 	v = np.squeeze(u[0])[()]
 	w = np.squeeze(u[1])[()]
-	yaw = np.squeeze(x[2])[()]
+	yaw = np.squeeze(x[2])[()] # yaw = yaw + u[1]*dt
 	G1=np.array([1.0, 0.0, -v*dt*np.sin(yaw), np.cos(yaw)*dt, -v*np.sin(yaw)*(dt**2)])
 	G2=np.array([0.0, 1.0,  v*dt*np.cos(yaw), np.sin(yaw)*dt, v*np.cos(yaw)*(dt**2)])
 	#r = v/w
@@ -123,7 +123,7 @@ def jacob_g(x, u):
 	#df2dw=np.squeeze(df2dw)[()]
 	#G1=np.array([1.0, 0.0, df1dth, df1dv, df1dw])
 	#G2=np.array([0.0, 1.0, df2dth, df2dv, df2dw])
-	G3=np.array([0.0, 0.0, 1.0, 0.0, 0.0])
+	G3=np.array([0.0, 0.0, 1.0, 0.0, dt])
 	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
 	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
 	G = np.vstack([G1,G2,G3, G4, G5])
@@ -153,7 +153,7 @@ def jacob_h(x, m):
 	dh2dk = (dx**2)/q #dh2/dk, where k=dx+dy
 	#yaw -= w*dt
 	H24 = dh2dk*(np.sin(yaw)*dt*dx-np.cos(yaw)*dt*dy)/(dx**2)
-	H25 = dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
+	H25 = -dt#dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
 	H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24, H25])
 	H = np.vstack([H1,H2])
 	
@@ -392,10 +392,7 @@ def main():
 			axes[1][0].set_title('y-coord variance')
 			axes[1][0].plot(hPycoord,color="k")
 			axes[1][0].grid(True)
-			#plt.title('velocity variance, {}'.format(xEst[3]))
-			#plt.plot(hPvel,color="k")
-			#plt.grid(True)
-			#plt.title('matrix color')
+			plt.title('matrix color')
 			axes[1][1].matshow(np.abs(PEst), cmap=plt.cm.Blues)
 			for (i, j), z in np.ndenumerate(PEst):
 				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
