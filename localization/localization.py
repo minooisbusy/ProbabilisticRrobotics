@@ -31,7 +31,7 @@ KNOWN =  False
 # Observation noise switch, True = measurements are noisy
 NOISE = True 
 
-def plot_covariance_ellipse(xEst, PEst, label):
+def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
 	Pxy=np.array(Pxy, dtype=float)
 	eigval, eigvec = np.linalg.eig(Pxy)
@@ -53,7 +53,8 @@ def plot_covariance_ellipse(xEst, PEst, label):
 	fx = rot @ (np.array([x, y]))
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
 	py = np.array(fx[1, :] + xEst[1, 0]).flatten()
-	plt.plot(px, py, "--r",label=label)
+#	plt.plot(px, py, "--r",label=label)
+	return px, py
 
 def calc_input():
 	v = 1.0
@@ -266,66 +267,81 @@ def main():
 		hPycoord = np.hstack((hPycoord, PEst[1,1]))
 
 		
-
+		fig, axes = plt.subplot(2,2)
 		if show_animation:
-			plt.subplot(1,3,1)
-			plt.cla()
-			plt.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
+			
+			for i in range(2):
+				for j in range(2):
+					axes[i][j].cla()
+			#fig.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
 			# Map
-			plt.plot(m[:, 0],
+			axes[0][0].plot(m[:, 0],
 					 m[:, 1],".k")
 			# Observed Real landmark position
 			if len(zs) != 0:
 #				plt.plot(zs[:, 0].flatten(),
 #						zs[:, 1].flatten(), "+g")
 			# Observed Noisy landmakr position
-				plt.plot(zds[:, 0].flatten(),
+				axes[0][0].plot(zds[:, 0].flatten(),
 						zds[:, 1].flatten(), "xy", label="Noisy observations")
 			# True pose trajectory
-			plt.plot(hxTrue[0, :].flatten(),
+			axes[0][0].plot(hxTrue[0, :].flatten(),
 					 hxTrue[1, :].flatten(), "--",color="blue", label="True trajectory")
-			plt.plot(hxTrue[0,-1],
+			axes[0][0].plot(hxTrue[0,-1],
 					 hxTrue[1,-1], ".b", label="Current true position")
 			# Dead Reckoning position trajectory
-			plt.plot(hxDR[0, :].flatten(),
+			axes[0][0].plot(hxDR[0, :].flatten(),
 					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
+			axes[0][0].plot(hxDR[0,-1],
+					 hxDR[1,-1], ".r", label="Current DR position")
 
 			# Estimated pose trajectory
-			plt.plot(hxEst[0, :].flatten(),
+			axes[0][0].plot(hxEst[0, :].flatten(),
 					 hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
+			axes[0][0].plot(hxEst[0,-1],
+					 hxEst[1,-1], ".",color="lime", label="Current Est position")
 
 
-			plt.axis("equal")
-			plt.xlim(-20,20)
-			plt.ylim(-5,25)
-			plt.grid(True)
-			plt.title('Simulation plot')
-			plot_covariance_ellipse(xEst,PEst, label='State covariance')
+			axes[0][0].set_aspect("equal")
+			axes[0][0].set_xlim(-20,20)
+			axes[0][0].set_ylim(-5,25)
+			axes[0][0].grid(True)
+			axes[0][0].set_title('Simulation plot')
+			px, py = plot_covariance_ellipse(xEst,PEst)
+			axes[0][0].plot(px, py, "--r",label='State covariance')
 			# correspondences, red: outlier
-#			for i, z in enumerate(zds[:,:]):
-#				j = mapper[i]
-#				if  j < 0:
-#					j = abs(j)
-#					plt.plot([z[0],m[j][0]],
-#						[z[1], m[j][1]], "-r")
-#				else:
-#					plt.plot([z[0],m[j][0]],
-#						[z[1], m[j][1]], "-g")
-			plt.legend()
-			plt.subplot(1,3,2)
-			plt.title('x-coord variance')
+			for i, z in enumerate(zds[:,:]):
+				j = mapper[i]
+				if  j < 0:
+					j = abs(j)
+					axes[0][0].plot([z[0],m[j][0]],
+						[z[1], m[j][1]], "-r")
+				else:
+					axes[0][0].plot([z[0],m[j][0]],
+						[z[1], m[j][1]], "-g")
+			#axes[0][0].legend()
+			axes[0][1].set_title('x-coord variance')
 			#plt.ylim(0,0.3)
-			plt.plot(hPxcoord,color="k")
-			plt.subplot(1,3,3)
-			plt.title('y-coord variance')
-			#plt.ylim(0,0.3)
-			plt.plot(hPycoord,color="k")
-			plt.pause(0.001)
+			axes[0][1].plot(hPxcoord,color="k")
+			axes[0][1].grid(True)
+			axes[1][0].set_title('y-coord variance')
+			axes[1][0].plot(hPycoord,color="k")
+			axes[1][0].grid(True)
+			#plt.title('velocity variance, {}'.format(xEst[3]))
+			#plt.plot(hPvel,color="k")
+			#plt.grid(True)
+			#plt.title('matrix color')
+			axes[1][1].matshow(np.abs(PEst), cmap=plt.cm.Blues)
+			for (i, j), z in np.ndenumerate(PEst):
+				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
+			plt.pause(0.00001)
 			key = None
 			while key =='c':
 				key = plt.waitforbuttonpress(0)
 			if key == 'escape':
 				sys.exit()
+		
+	key = plt.waitforbuttonpress(0)
 
 
 			
