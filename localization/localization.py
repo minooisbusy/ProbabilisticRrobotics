@@ -4,10 +4,10 @@
 # Date: 09/ Aug/ 21
 
 import enum
+from numpy.core.fromnumeric import squeeze
 from numpy.core.numeric import zeros_like
 import sys
 import numpy as np
-import math
 
 import matplotlib.pyplot as plt
 from scipy.linalg import sqrtm
@@ -43,12 +43,12 @@ def plot_covariance_ellipse(xEst, PEst):
 	    bigind = 1
 	    smallind = 0
 
-	t = np.arange(0, 2 * math.pi + 0.1, 0.1)
-	a = math.sqrt(abs(eigval[bigind]))
-	b = math.sqrt(abs(eigval[smallind]))
-	x = [a * math.cos(it) for it in t]
-	y = [b * math.sin(it) for it in t]
-	angle = math.atan2(eigvec[1, bigind], eigvec[0, bigind])
+	t = np.arange(0, 2 * np.pi + 0.1, 0.1)
+	a = np.sqrt(abs(eigval[bigind]))
+	b = np.sqrt(abs(eigval[smallind]))
+	x = [a * np.cos(it) for it in t]
+	y = [b * np.sin(it) for it in t]
+	angle = np.arctan2(eigvec[1, bigind], eigvec[0, bigind])
 	rot = Rot.from_euler('z', angle).as_matrix()[0:2, 0:2]
 	fx = rot @ (np.array([x, y]))
 	px = np.array(fx[0, :] + xEst[0, 0]).flatten()
@@ -79,10 +79,10 @@ def motion_model(xTrue, u):
 	r = u[0]/u[1]
 	g = np.array(
 		[
-			#xTrue[0]+u[0]*np.math.cos(xTrue[2])*dt,
-			#xTrue[1]+u[0]*np.math.sin(xTrue[2])*dt,
-			xTrue[0]-r*math.sin(xTrue[2])+r*math.sin(xTrue[2]+u[1]*dt),
-			xTrue[1]+r*math.cos(xTrue[2])-r*math.cos(xTrue[2]+u[1]*dt),
+			#xTrue[0]+u[0]*np.np.cos(xTrue[2])*dt,
+			#xTrue[1]+u[0]*np.np.sin(xTrue[2])*dt,
+			xTrue[0]-r*np.sin(xTrue[2])+r*np.sin(xTrue[2]+u[1]*dt),
+			xTrue[1]+r*np.cos(xTrue[2])-r*np.cos(xTrue[2]+u[1]*dt),
 			xTrue[2]+u[1]*dt
 		]
 	)
@@ -90,11 +90,17 @@ def motion_model(xTrue, u):
 
 def jacob_g(x, u):
 	r = u[0]/u[1] # r=v/{\omega}
-	#G1=np.array([1.0, 0.0, -u[0]*dt*math.sin(x[2])],dtype=object)
-	#G2=np.array([0.0, 1.0,  u[0]*dt*math.cos(x[2])],dtype=object)
-	G1=np.array([1.0, 0.0, -r*math.cos(x[2])+r*math.cos(x[2]+u[1]*dt)],dtype=object)
-	G2=np.array([0.0, 1.0, -r*math.sin(x[2])+r*math.sin(x[2]+u[1]*dt)],dtype=object)
-	G3=np.array([0.0,0.0,1.0],dtype=object)
+	#G1=np.array([1.0, 0.0, -u[0]*dt*np.sin(x[2])],dtype=object)
+	#G2=np.array([0.0, 1.0,  u[0]*dt*np.cos(x[2])],dtype=object)
+	phi = x[2]
+	w = u[1]
+	r = np.squeeze(r)[()]
+	phi = np.squeeze(phi)[()]
+	w = np.squeeze(w)[()]
+
+	G1=np.array([1.0, 0.0, -r*np.cos(phi)+r*np.cos(phi+w*dt)])
+	G2=np.array([0.0, 1.0, -r*np.sin(phi)+r*np.sin(phi+w*dt)])
+	G3=np.array([0.0,0.0,1.0])
 	G = np.vstack([G1,G2,G3])
 	return G
 
@@ -103,10 +109,13 @@ def jacob_h(x, m):
 	deltaX = m[0] - x[0]
 	deltaY = m[1] - x[1]
 	q = deltaX**2 + deltaY**2
-	sqrtq = math.sqrt(q)
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0],dtype=object)
-	H2 = np.array([deltaY/q, -deltaX/q, -1.0],dtype=object)
-	H3 = np.array([0, 0, 0],dtype=object)
+	deltaX = squeeze(deltaX)[()]
+	deltaY = squeeze(deltaY)[()]
+	q = squeeze(q)[()]
+	sqrtq = np.sqrt(q)
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0])
+	H2 = np.array([deltaY/q, -deltaX/q, -1.0])
+	H3 = np.array([0, 0, 0])
 	H = np.vstack([H1,H2,H3])
 	
 	return H
@@ -114,16 +123,16 @@ def jacob_h(x, m):
 def make_map(r, N): 
 	noisy_r = r + np.random.randn()
 	
-	theta = np.pi*2*np.random.randn(1)
-	x = noisy_r*math.cos(theta) 
-	y = noisy_r*math.sin(theta) + r 
+	theta = np.pi*2*np.random.randn()
+	x = noisy_r*np.cos(theta) 
+	y = noisy_r*np.sin(theta) + r 
 	m = np.array([x, y, 0])
 
 	for i in range(1,N):
-		theta = np.pi*np.random.randn(1)
+		theta = np.pi*np.random.randn()
 		noisy_r = r + np.random.randn()
-		x = noisy_r*math.cos(theta) 
-		y = noisy_r*math.sin(theta) +r
+		x = noisy_r*np.cos(theta) 
+		y = noisy_r*np.sin(theta) +r
 		id = i
 		m = np.vstack([m,np.array([x,y, i])])
 	return m
@@ -151,13 +160,13 @@ def ekf_estimation(xEst, PEst, zs, u, m, testZ):
 
 
 def convert_z2feature(x, zs):
-	output = np.zeros((len(zs), 3), dtype=object)
+	output = np.zeros((len(zs), 3))
 	for i, z in enumerate(zs):
 		deltaX = z[0] - x[0]
 		deltaY = z[1] - x[1]
 		q = deltaX**2+deltaY**2
-		output[i, 0] = math.sqrt(q)
-		output[i, 1] = math.atan2(deltaY, deltaX)-x[2]
+		output[i, 0] = np.sqrt(q)
+		output[i, 1] = np.arctan2(deltaY, deltaX)-x[2]
 		output[i, 2] = z[2]
 	return output
 
@@ -183,11 +192,11 @@ def measurement_update(x, PPred, zs, m, mapper):
 		q = deltaX**2 + deltaY**2 
 
 		# squared root of $q$
-		sqrtq = math.sqrt(q)
+		sqrtq = np.sqrt(q)
 
 		# \hat{z}
 		hat_z[0, k] = sqrtq
-		hat_z[1, k] = math.atan2(deltaY, deltaX)-x[2]
+		hat_z[1, k] = np.arctan2(deltaY, deltaX)-x[2]
 		hat_z[2, k] = landmark[2]
 
 		# $H$
@@ -250,6 +259,7 @@ def main():
 	m=make_map(10, 150)
 	hz = None
 	
+	fig, axes = plt.subplots(2,2)
 	while SIM_TIME >= time:
 		time += dt
 		u = calc_input() # linear and angular velocity
@@ -267,7 +277,6 @@ def main():
 		hPycoord = np.hstack((hPycoord, PEst[1,1]))
 
 		
-		fig, axes = plt.subplot(2,2)
 		if show_animation:
 			
 			for i in range(2):
