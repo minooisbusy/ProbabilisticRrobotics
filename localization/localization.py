@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation as Rot
 # Global variables
 dt = 0.1 # time intervals
 N = 200 # number of states
-NSTATE = 5 # # of state variable
+NSTATE = 4 # # of state variable
 
 # Noise parameters
 V_NOISE = 1.2
@@ -26,7 +26,10 @@ W_NOISE =np.deg2rad(30.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
-R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+if NSTATE == 5:
+	R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+else:
+	R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 Q = np.diag([30, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
@@ -90,13 +93,12 @@ def motion_model(xTrue, u):
 	yaw = xTrue[2]
 	g = np.array(
 		[
-			x+u[0]*np.cos(yaw+w*dt)*dt,
-			y+u[0]*np.sin(yaw+w*dt)*dt,
+			x+u[0]*np.cos(yaw)*dt,
+			y+u[0]*np.sin(yaw)*dt,
 			#x-r*np.sin(yaw)+r*np.sin(yaw+w*dt), #g1
 			#y+r*np.cos(yaw)-r*np.cos(yaw+w*dt), #g2
 			np.remainder(yaw+w*dt, 2*np.pi),
-			v,
-			w
+			v
 		]
 	)
 	return g
@@ -105,8 +107,8 @@ def jacob_g(x, u):
 	v = np.squeeze(u[0])[()]
 	w = np.squeeze(u[1])[()]
 	yaw = np.squeeze(x[2])[()] # yaw = yaw + u[1]*dt
-	G1=np.array([1.0, 0.0, -v*dt*np.sin(yaw), np.cos(yaw)*dt, -v*np.sin(yaw)*(dt**2)])
-	G2=np.array([0.0, 1.0,  v*dt*np.cos(yaw), np.sin(yaw)*dt, v*np.cos(yaw)*(dt**2)])
+	G1=np.array([1.0, 0.0, -v*dt*np.sin(yaw), np.cos(yaw)*dt])
+	G2=np.array([0.0, 1.0,  v*dt*np.cos(yaw), np.sin(yaw)*dt])
 	#r = v/w
 	#df1dth = r*(-np.cos(yaw)+np.cos(yaw+w*dt))
 	#df1dv  = (-np.sin(yaw)+np.sin(yaw+w*dt))/w
@@ -123,10 +125,9 @@ def jacob_g(x, u):
 	#df2dw=np.squeeze(df2dw)[()]
 	#G1=np.array([1.0, 0.0, df1dth, df1dv, df1dw])
 	#G2=np.array([0.0, 1.0, df2dth, df2dv, df2dw])
-	G3=np.array([0.0, 0.0, 1.0, 0.0, dt])
-	G4=np.array([0.0, 0.0, 0.0, 1.0, 0.0])
-	G5=np.array([0.0, 0.0, 0.0, 0.0, 1.0])
-	G = np.vstack([G1,G2,G3, G4, G5])
+	G3=np.array([0.0, 0.0, 1.0, 0.0])
+	G4=np.array([0.0, 0.0, 0.0, 1.0])
+	G = np.vstack([G1,G2,G3, G4])
 	return G
 
 
@@ -139,22 +140,24 @@ def jacob_h(x, m):
 	sqrtq = np.sqrt(q)
 	
 	v = np.squeeze(x[3])[()]
-	w = np.squeeze(x[4])[()]
+	#w = np.squeeze(x[4])[()]
 	yaw = np.squeeze(x[2])[()] # yaw = yaw + w*dt
 	# _x = x + v*cos(yaw)*dt, dx = mx - _x
 	# _y = y + v*sin(yaw)*dt, dy = my - _y
 
 	H14 = -(deltaX*np.cos(yaw)*dt+deltaY*np.sin(yaw)*dt)/sqrtq
-	H15 = -(-deltaX*(v*np.sin(yaw)*(dt**2)+deltaY*v*np.cos(yaw)*(dt**2)))/sqrtq
-	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14, H15])
+	#H15 = -(-deltaX*(v*np.sin(yaw)*(dt**2)+deltaY*v*np.cos(yaw)*(dt**2)))/sqrtq
+	#H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14, H15])
+	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14])
 
 	dx=deltaX
 	dy=deltaY
 	dh2dk = (dx**2)/q #dh2/dk, where k=dx+dy
 	#yaw -= w*dt
-	H24 = dh2dk*(np.sin(yaw)*dt*dx-np.cos(yaw)*dt*dy)/(dx**2)
-	H25 = -dt#dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
-	H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24, H25])
+	H24 = (np.cos(yaw)*dt*dy + np.sin(yaw)*dt*dx/(dy**2))*(dh2dk)
+	#H25 = -dt#dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
+	#H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24, H25])
+	H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24])
 	H = np.vstack([H1,H2])
 	
 	return H
@@ -393,7 +396,7 @@ def main():
 			axes[1][0].plot(hPycoord,color="k")
 			axes[1][0].grid(True)
 			plt.title('matrix color')
-			axes[1][1].matshow(np.abs(PEst), cmap=plt.cm.Blues)
+			axes[1][1].matshow(np.abs(PEst), cmap='jet')
 			for (i, j), z in np.ndenumerate(PEst):
 				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
 			plt.pause(0.00001)
