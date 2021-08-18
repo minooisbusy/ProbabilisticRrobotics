@@ -165,7 +165,7 @@ def jacob_h(x, m):
 	
 def make_map(r, N): 
 	r=float(r)
-	noisy_r = r + np.random.randn()
+	noisy_r = r + 2*np.random.randn()
 	
 	theta = np.pi*2*np.random.randn()
 	x = noisy_r*np.cos(theta) 
