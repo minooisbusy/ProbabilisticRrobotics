@@ -21,22 +21,22 @@ N = 200 # number of states
 NSTATE = 4 # # of state variable
 
 # Noise parameters
-V_NOISE = 1.2
-W_NOISE =np.deg2rad(30.0)
+V_NOISE = 1.0
+W_NOISE =np.deg2rad(5.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
 #R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 if NSTATE == 5:
 	R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE, W_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 else:
-	R = np.diag([V_NOISE*dt, V_NOISE*dt, W_NOISE*dt, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
+	R = np.diag([2*V_NOISE*dt, 2*V_NOISE*dt, W_NOISE*dt, V_NOISE])**2  	  # motion model uncertainty diag(x, y, theta)
 Q = np.diag([30, 30])**2		  			  # observation model uncertainty diag(radian, phi, signature)
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
 KNOWN = True
 # Observation noise switch, True = measurements are noisy
-NOISE = True 
+NOISE =  False
 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
@@ -145,7 +145,7 @@ def jacob_h(x, m):
 	# _x = x + v*cos(yaw)*dt, dx = mx - _x
 	# _y = y + v*sin(yaw)*dt, dy = my - _y
 
-	H14 = -(deltaX*np.cos(yaw)*dt+deltaY*np.sin(yaw)*dt)/sqrtq
+	H14 = (deltaX*np.cos(yaw)*dt+deltaY*np.sin(yaw)*dt)/sqrtq
 	#H15 = -(-deltaX*(v*np.sin(yaw)*(dt**2)+deltaY*v*np.cos(yaw)*(dt**2)))/sqrtq
 	#H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14, H15])
 	H1 = np.array([-deltaX/sqrtq, -deltaY/sqrtq, 0.0, H14])
@@ -154,7 +154,8 @@ def jacob_h(x, m):
 	dy=deltaY
 	dh2dk = (dx**2)/q #dh2/dk, where k=dx+dy
 	#yaw -= w*dt
-	H24 = (np.cos(yaw)*dt*dy + np.sin(yaw)*dt*dx/(dy**2))*(dh2dk)
+	#H24 = (-np.sin(yaw)*dt/dx + np.cos(yaw)*dt*dx/(dx**2))*(dh2dk)
+	H24 = ((-np.sin(yaw)*dt)/dx - (-np.cos(yaw)*dt)*dy*(-1/(dx**2)))*dh2dk
 	#H25 = -dt#dh2dk*v*(np.cos(yaw)*(dt**2)*dx+np.sin(yaw)*(dt**2)*dy)/(dx**2)
 	#H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24, H25])
 	H2 = np.array([deltaY/q, 	  -deltaX/q,    -1.0, H24])
@@ -336,75 +337,75 @@ def main():
 
 		
 
-		if show_animation:
-			
-			for i in range(2):
-				for j in range(2):
-					axes[i][j].cla()
-			#fig.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
-			# Map
-			axes[0][0].plot(m[:, 0],
-					 m[:, 1],".k")
-			# Observed Real landmark position
-			if len(zs) != 0:
+	if show_animation:
+		
+		for i in range(2):
+			for j in range(2):
+				axes[i][j].cla()
+		#fig.gcf().canvas.mpl_connect('key_release_event', lambda event: [exit(0) if (event.key == 'escape' or event.key == 'q') else None])
+		# Map
+		axes[0][0].plot(m[:, 0],
+					m[:, 1],".k")
+		# Observed Real landmark position
+		if len(zs) != 0:
 #				plt.plot(zs[:, 0].flatten(),
 #						zs[:, 1].flatten(), "+g")
-			# Observed Noisy landmakr position
-				axes[0][0].plot(zds[:, 0].flatten(),
-						zds[:, 1].flatten(), "xy", label="Noisy observations")
-			# True pose trajectory
-			axes[0][0].plot(hxTrue[0, :].flatten(),
-					 hxTrue[1, :].flatten(), "--",color="blue", label="True trajectory")
-			axes[0][0].plot(hxTrue[0,-1],
-					 hxTrue[1,-1], ".b", label="Current true position")
-			# Dead Reckoning position trajectory
-			axes[0][0].plot(hxDR[0, :].flatten(),
-					 hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
-			axes[0][0].plot(hxDR[0,-1],
-					 hxDR[1,-1], ".r", label="Current DR position")
+		# Observed Noisy landmakr position
+			axes[0][0].plot(zds[:, 0].flatten(),
+					zds[:, 1].flatten(), "xy", label="Noisy observations")
+		# True pose trajectory
+		axes[0][0].plot(hxTrue[0, :].flatten(),
+					hxTrue[1, :].flatten(), "--",color="blue", label="True trajectory")
+		axes[0][0].plot(hxTrue[0,-1],
+					hxTrue[1,-1], ".b", label="Current true position")
+		# Dead Reckoning position trajectory
+		axes[0][0].plot(hxDR[0, :].flatten(),
+					hxDR[1, :].flatten(), "--k", label="Dead Reckoning")
+		axes[0][0].plot(hxDR[0,-1],
+					hxDR[1,-1], ".r", label="Current DR position")
 
-			# Estimated pose trajectory
-			axes[0][0].plot(hxEst[0, :].flatten(),
-					 hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
-			axes[0][0].plot(hxEst[0,-1],
-					 hxEst[1,-1], ".",color="lime", label="Current Est position")
+		# Estimated pose trajectory
+		axes[0][0].plot(hxEst[0, :].flatten(),
+					hxEst[1, :].flatten(), "-", color="lime",label="Estimated")
+		axes[0][0].plot(hxEst[0,-1],
+					hxEst[1,-1], ".",color="lime", label="Current Est position")
 
 
-			axes[0][0].set_aspect("equal")
-			axes[0][0].set_xlim(-20,20)
-			axes[0][0].set_ylim(-5,25)
-			axes[0][0].grid(True)
-			axes[0][0].set_title('Simulation plot')
-			px, py = plot_covariance_ellipse(xEst,PEst)
-			axes[0][0].plot(px, py, "--r",label='State covariance')
-			# correspondences, red: outlier
-			for i, z in enumerate(zds[:,:]):
-				j = mapper[i]
-				if  j < 0:
-					j = abs(j)
-					axes[0][0].plot([z[0],m[j][0]],
-						[z[1], m[j][1]], "-r")
-				else:
-					axes[0][0].plot([z[0],m[j][0]],
-						[z[1], m[j][1]], "-g")
-			#axes[0][0].legend()
-			axes[0][1].set_title('x-coord variance')
-			#plt.ylim(0,0.3)
-			axes[0][1].plot(hPxcoord,color="k")
-			axes[0][1].grid(True)
-			axes[1][0].set_title('y-coord variance')
-			axes[1][0].plot(hPycoord,color="k")
-			axes[1][0].grid(True)
-			plt.title('matrix color')
-			axes[1][1].matshow(np.abs(PEst), cmap='jet')
-			for (i, j), z in np.ndenumerate(PEst):
-				axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
-			plt.pause(0.00001)
-			key = None
-			while key =='c':
-				key = plt.waitforbuttonpress(0)
-			if key == 'escape':
-				sys.exit()
+		axes[0][0].set_aspect("equal")
+		axes[0][0].set_xlim(-20,20)
+		axes[0][0].set_ylim(-5,25)
+		axes[0][0].grid(True)
+		axes[0][0].set_title('Simulation plot')
+		px, py = plot_covariance_ellipse(xEst,PEst)
+		axes[0][0].plot(px, py, "--r",label='State covariance')
+		# correspondences, red: outlier
+		for i, z in enumerate(zds[:,:]):
+			j = mapper[i]
+			if  j < 0:
+				j = abs(j)
+				axes[0][0].plot([z[0],m[j][0]],
+					[z[1], m[j][1]], "-r")
+			else:
+				axes[0][0].plot([z[0],m[j][0]],
+					[z[1], m[j][1]], "-g")
+		#axes[0][0].legend()
+		axes[0][1].set_title('x-coord variance')
+		#plt.ylim(0,0.3)
+		axes[0][1].plot(hPxcoord,color="k")
+		axes[0][1].grid(True)
+		axes[1][0].set_title('y-coord variance')
+		axes[1][0].plot(hPycoord,color="k")
+		axes[1][0].grid(True)
+		plt.title('matrix color')
+		axes[1][1].matshow(np.abs(PEst), cmap='jet')
+		for (i, j), z in np.ndenumerate(PEst):
+			axes[1][1].text(j, i, '{0:.1f}'.format(z,ha='center',va='center'))
+		plt.pause(0.00001)
+		key = None
+		while key =='c':
+			key = plt.waitforbuttonpress(0)
+		if key == 'escape':
+			sys.exit()
 		
 	key = plt.waitforbuttonpress(0)
 	
