@@ -21,7 +21,7 @@ N = 200 # number of states
 NSTATE = 4 # # of state variable
 
 # Noise parameters
-V_NOISE = 1.0
+V_NOISE = 1.2
 W_NOISE =np.deg2rad(5.0)
 R_NOISE = 0.01 # observation noise
 PHI_NOISE = np.deg2rad(30.0)
@@ -34,9 +34,9 @@ Q = np.diag([30, 30])**2		  			  # observation model uncertainty diag(radian, ph
 INPUT_NOISE = np.diag([V_NOISE, W_NOISE]) ** 2
 
 # Known correspondences switch, True = Known correspondences
-KNOWN = True
+KNOWN = False
 # Observation noise switch, True = measurements are noisy
-NOISE =  False
+NOISE =  True
 
 def plot_covariance_ellipse(xEst, PEst):
 	Pxy = PEst[0:2, 0:2]
