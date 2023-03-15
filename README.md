@@ -3,7 +3,7 @@ Author: Minwoo shin
 Date: 2021-Aug-01
 
 ## Update!
-I implemented 4-state kalman filter where $\bm x=(x,y,\theta,v)^T$.
+I implemented 4-state kalman filter where $\mathbb x=(x,y,\theta,v)^T$.
 
 
 This implementation can be found in the `fourState` branch.
