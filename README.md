@@ -15,6 +15,6 @@ This code implements 2D robot pose estimation with Extended Kalman filter. The r
 The plot below shows the execution of this code. As far as I know, the diagonal component of the covariance should decrease over time. However, this fraction increases with each new observation, and has not yet been analyzed.
 
 
-There are so many failure cases.. Mabye solving them is fun too!
+There are so many failure cases.. Maybe solving them is fun too!
 
 ![figure1](./figures/EKF.png)
